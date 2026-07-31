@@ -61,7 +61,7 @@ const moduleDefinition = {
                 }
 
                 try {
-                    const sentMessage = await message.reply(payload);
+                    const sentMessage = await message.channel.sendMessage(payload);
                     if (content === 'The same user cannot take two actions in a row. Please wait for another player.') {
                         setTimeout(async () => {
                             try {
@@ -72,7 +72,7 @@ const moduleDefinition = {
                         }, 3000);
                     }
                 } catch (error) {
-                    logger.warn(`Failed to reply to Pass the Tuna action message: ${error}`);
+                    logger.warn(`Failed to send Pass the Tuna action message: ${error}`);
                     try {
                         const fallbackSentMessage = await message.channel.send(payload);
                         if (content === 'The same user cannot take two actions in a row. Please wait for another player.') {
