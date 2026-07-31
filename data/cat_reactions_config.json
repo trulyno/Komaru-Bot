@@ -1,0 +1,136 @@
+{
+    "cat_triggers": ["nya", "meow", "mew", "mrow", "purr", "miau", "miaow", "nyan", "mrrow"],
+    "cat_response_rate": 0.1,
+    "cat_responses": {
+        "curious": [
+            "Nya? 🐱",
+            "Mrow? 😸",
+            "Meow meow? 🤔",
+            "*tilts head* Nya~? 😺",
+            "Mew? What's that? 🐾",
+            "Nya nya? *ears perk up* 👂",
+            "Meow? *investigates* 🔍"
+        ],
+        "happy": [
+            "Nyaa~! 😸",
+            "Meow meow! 🎉",
+            "Purr purr~ ❤️",
+            "*happy purring* Nyaa! 😻",
+            "Mrow mrow! 🥰",
+            "Nya nya! *bounces excitedly* ✨",
+            "Meow! *happy tail swishes* 🌟"
+        ],
+        "playful": [
+            "Nyaa nya! *pounces* 🐱",
+            "Meow! *swishes tail* 😹",
+            "Mrow mrow! *playful paws* 🐾",
+            "Nya nya! *rolls around* 😸",
+            "Meow meow! *chases tail* 🌀",
+            "Nya! *batting at invisible string* 🧶",
+            "Mrow! *sudden zoomies* 💨"
+        ],
+        "sleepy": [
+            "Nya... *yawn* 😴",
+            "Meow... zzz 💤",
+            "Mrow... *stretches* 😪",
+            "Purr... *curls up* 🛌",
+            "Nya... so sleepy... 😴",
+            "Meow... *slow blink* 😌",
+            "Mrow... *finds warm sunspot* ☀️"
+        ],
+        "affectionate": [
+            "Nya~ *nuzzles* 💕",
+            "Purr purr~ *head bonks* ❤️",
+            "Meow meow~ *rubs against you* 🥰",
+            "Mrow~ *gentle paw pat* 😽",
+            "Nya nya~ *cuddles* 💖",
+            "Meow~ *slow loving blinks* 💝",
+            "Purr~ *kneading biscuits* 🥧"
+        ],
+        "sassy": [
+            "Nya. 😼",
+            "Meow. *sits with back turned* 🙄",
+            "Mrow... *flicks tail dismissively* 😒",
+            "Nya nya. *judgmental stare* 👀",
+            "Meow meow. *slow blink* 😏",
+            "Nya. *knocks something off table* 📱",
+            "Mrow. *dramatic sigh* 💅"
+        ],
+        "mischievous": [
+            "Nya nya~ *plotting* 😈",
+            "Meow! *innocent whistle* 😇",
+            "Mrow mrow~ *hides evidence* 🫣",
+            "Nya~ Nothing to see here! 👀",
+            "Meow meow~ *suspicious rustling* 📦",
+            "Nya! *zooms away suspiciously* 💨",
+            "Mrow~ *definitely not planning anything* 😼"
+        ]
+    },
+    "komaru_emojis": [
+        "😸",
+        "🐱",
+        "😺",
+        "😻",
+        "😽",
+        "🙀",
+        "😿",
+        "😹",
+        "❤️",
+        "💕",
+        "🐾",
+        "🎀",
+        "✨",
+        "💖",
+        "🥰",
+        "😊"
+    ],
+    "komaru_responses": [
+        "Nya~! You called me? 😸",
+        "Meow meow! Komaru is here! 🐱",
+        "Nya nya! *appears with sparkles* ✨😺",
+        "Mrow! Did someone say my name? 😻",
+        "Purr purr~ Hello there! 💕",
+        "*happy cat noises* Nya! 🎉",
+        "Meow! Komaru at your service! 🐾",
+        "Nya nya~ *materializes from the shadows* 🌙😸",
+        "Mrow mrow! Someone summoned the cat! 🔮",
+        "Nya! *pounces into the conversation* 🦘",
+        "Meow meow~ The legendary Helper Komaru appears! ⭐",
+        "Purr~ You rang? 📞😽"
+    ],
+    "komaru_gifs": [
+        "https://media.tenor.com/qM-l4e-aIqwAAAAC/exploding-kitty-reverse.gif",
+        "https://media.tenor.com/DBNzd6dRzoIAAAAC/komaru-komaru-cat.gif",
+        "https://media.tenor.com/lB1H9g-9sLwAAAAC/komaru-mugimeshi323.gif",
+        "https://media.tenor.com/aFJpsQF6FisAAAAC/komaru-cat.gif",
+        "https://media.tenor.com/OplvSdj5_Y8AAAAC/komaru-singno2.gif",
+        "https://media.tenor.com/A9GOPpvc4CoAAAAC/komaru-komaru-cat.gif",
+        "https://media.tenor.com/z_zVtUkekr8AAAAC/komaru-cat.gif",
+        "https://media.tenor.com/9XnAOkxK_zQAAAAC/komaru-komaru.gif",
+        "https://media.tenor.com/OQcujKmxXbsAAAAC/komaru.gif"
+    ],
+    "bingus_gifs": [
+        "https://media.tenor.com/ejF6ZwW4lXcAAAAd/bingus.gif",
+        "https://media.tenor.com/CRcfsmcEfJQAAAAd/bingus-hairless-cat.gif",
+        "https://media.tenor.com/n76R71EMdDYAAAAd/bingus-floppa.gif",
+        "https://media.tenor.com/XVLOonuVAe8AAAAd/bingus-dance.gif",
+        "https://media.tenor.com/s9LwSLYtxlwAAAAd/bingus-bingus-combat.gif"
+    ],
+    "bingus_responses": [
+        "BINGUS! 🐱",
+        "The legendary Bingus appears! ✨",
+        "Bingus my beloved 💕",
+        "All hail Bingus! 👑",
+        "Bingus supremacy! 😸",
+        "*bingus energy intensifies* 🔥",
+        "Bingus moment! 🎉",
+        "The smooth one arrives! 😺"
+    ],
+    "komaru_response_weights": {
+        "emoji_react": 40,
+        "text_response": 40,
+        "gif_response": 20
+    },
+    "elaboration_chance": 0.1,
+    "max_komaru_emojis": 3
+}
