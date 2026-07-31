@@ -3,7 +3,7 @@ import { logger } from './logger';
 export interface CommandOption {
     name: string;
     description: string;
-    type: number; // 3: STRING, 4: INTEGER, 6: USER, 10: NUMBER
+    type: number; // 3: STRING, 4: INTEGER, 5: BOOLEAN, 6: USER, 10: NUMBER
     required?: boolean;
     choices?: Array<{ name: string; value: string | number }>;
 }
