@@ -29,10 +29,21 @@ const moduleDefinition = {
 
         client.on('messageCreate', async (message: any) => {
             if (!message || message.author?.bot) return;
+
+            const state = loadPassTheTunaState(defaultDataDir);
+            if (state.active && state.currentChain && message.channel?.id === state.currentChain.channelId) {
+                try {
+                    if (message.deletable) {
+                        await message.delete();
+                    }
+                } catch (error) {
+                    logger.warn(`Unable to delete Pass the Tuna channel message: ${error}`);
+                }
+            }
+
             const content = message.content?.trim() ?? '';
             if (!/\b(pass|take)\b/i.test(content)) return;
 
-            const state = loadPassTheTunaState(defaultDataDir);
             if (!state.active || !state.currentChain) return;
             if (message.channel?.id !== state.currentChain.channelId) return;
 
@@ -43,17 +54,49 @@ const moduleDefinition = {
                 now: Date.now(),
             });
 
+            const sendMessage = async (content: string, attachmentPath?: string) => {
+                const payload: any = { content };
+                if (attachmentPath && fs.existsSync(attachmentPath)) {
+                    payload.files = [attachmentPath];
+                }
+
+                try {
+                    const sentMessage = await message.reply(payload);
+                    if (content === 'The same user cannot take two actions in a row. Please wait for another player.') {
+                        setTimeout(async () => {
+                            try {
+                                await sentMessage.delete();
+                            } catch (error) {
+                                logger.warn(`Failed to delete queued Pass the Tuna warning message: ${error}`);
+                            }
+                        }, 3000);
+                    }
+                } catch (error) {
+                    logger.warn(`Failed to reply to Pass the Tuna action message: ${error}`);
+                    try {
+                        const fallbackSentMessage = await message.channel.send(payload);
+                        if (content === 'The same user cannot take two actions in a row. Please wait for another player.') {
+                            setTimeout(async () => {
+                                try {
+                                    await fallbackSentMessage.delete();
+                                } catch (fallbackError) {
+                                    logger.warn(`Failed to delete queued Pass the Tuna warning message after fallback send: ${fallbackError}`);
+                                }
+                            }, 3000);
+                        }
+                    } catch (fallbackError) {
+                        logger.warn(`Failed to send Pass the Tuna action message to channel: ${fallbackError}`);
+                    }
+                }
+            };
+
             if (result.blocked) {
-                await message.reply(result.message);
+                await sendMessage(result.message);
                 return;
             }
 
             const gifPath = result.gifPath;
-            const payload: any = { content: result.message };
-            if (gifPath && fs.existsSync(gifPath)) {
-                payload.files = [gifPath];
-            }
-            await message.reply(payload);
+            await sendMessage(result.message, gifPath);
         });
 
         commandRegistry.register({
@@ -85,6 +128,11 @@ const moduleDefinition = {
                     now: Date.now(),
                     config: loadPassTheTunaConfig(defaultDataDir),
                 });
+
+                const introMessage = `Pass the Tuna is live! The chain starts at length 0. Type pass or take to keep it going.`;
+                if (targetChannel?.send) {
+                    await targetChannel.send(introMessage);
+                }
 
                 await interaction.reply({
                     content: `Pass the Tuna is live in <#${targetChannel.id}>. The chain starts at length ${startedChain.chainLength} and the delicious threshold is ${startedChain.deliciousThreshold}.`,

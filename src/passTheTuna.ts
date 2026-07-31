@@ -66,7 +66,7 @@ export interface PassTheTunaActionContext {
 export interface PassTheTunaActionResult {
     action: 'pass' | 'take';
     blocked: boolean;
-    reason?: 'no_active_chain' | 'grace_period' | 'invalid_action';
+    reason?: 'no_active_chain' | 'grace_period' | 'same_user' | 'invalid_action';
     chainLength: number;
     score: number;
     penaltyApplied: boolean;
@@ -406,20 +406,29 @@ export function createPassTheTunaEngine(dataDir?: string) {
             const gracePeriodMs = config.gracePeriodSeconds * 1000;
             const now = args.now;
 
-            if (
-                chain.lastActionByUserId === args.userId &&
-                chain.lastActionAt > 0 &&
-                now - chain.lastActionAt < gracePeriodMs
-            ) {
+            if (chain.lastActionByUserId === args.userId && chain.lastActionAt > 0) {
+                if (now - chain.lastActionAt < gracePeriodMs) {
+                    return {
+                        action: args.action,
+                        blocked: true,
+                        reason: 'grace_period',
+                        chainLength: chain.chainLength,
+                        score: 0,
+                        penaltyApplied: false,
+                        chainEnded: false,
+                        message: `Please wait ${config.gracePeriodSeconds} seconds before acting again.`,
+                    };
+                }
+
                 return {
                     action: args.action,
                     blocked: true,
-                    reason: 'grace_period',
+                    reason: 'same_user',
                     chainLength: chain.chainLength,
                     score: 0,
                     penaltyApplied: false,
                     chainEnded: false,
-                    message: `Please wait ${config.gracePeriodSeconds} seconds before acting again.`,
+                    message: 'The same user cannot take two actions in a row. Please wait for another player.',
                 };
             }
 
