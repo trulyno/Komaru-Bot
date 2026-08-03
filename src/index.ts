@@ -29,7 +29,7 @@ const moduleLoader = new ModuleLoader(path.resolve(__dirname, 'modules'));
 async function main(): Promise<void> {
     await moduleLoader.loadAll();
 
-    client.once('ready', () => {
+    client.once('clientReady', () => {
         logger.info(`Komaru Bot ready as ${client.user?.tag ?? 'unknown'}`);
     });
 
