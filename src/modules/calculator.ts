@@ -16,8 +16,9 @@ const CAT_MESSAGES = [
     'This one was whisker-thin to solve.',
 ];
 
+// Allow digits, letters (function names / constants), commas (function args), and ! (factorial), in addition to the original math operators.
 function isSafeToken(token: string): boolean {
-    return /^[0-9.+\-*/^()\s]+$/.test(token);
+    return /^[0-9a-zA-Z.+\-*/^()\s,!%]+$/.test(token);
 }
 
 function tokenize(input: string): string[] {
@@ -32,6 +33,136 @@ function tokenize(input: string): string[] {
 
     return [sanitized];
 }
+
+function factorial(n: number): number {
+    if (!Number.isFinite(n)) {
+        throw new Error('factorial() requires a finite number');
+    }
+    if (!Number.isInteger(n)) {
+        throw new Error('factorial() requires an integer');
+    }
+    if (n < 0) {
+        throw new Error('factorial() is undefined for negative numbers');
+    }
+    if (n > 170) {
+        // 170! is roughly the largest factorial representable as a finite double
+        throw new Error('factorial() input is too large');
+    }
+
+    let result = 1;
+    for (let i = 2; i <= n; i += 1) {
+        result *= i;
+    }
+    return result;
+}
+
+interface MathFunctionSpec {
+    minArgs: number;
+    maxArgs: number;
+    apply: (args: number[]) => number;
+}
+
+const FUNCTIONS: Record<string, MathFunctionSpec> = {
+    // Trigonometry (radians)
+    sin: { minArgs: 1, maxArgs: 1, apply: (args) => Math.sin(args[0]) },
+    cos: { minArgs: 1, maxArgs: 1, apply: (args) => Math.cos(args[0]) },
+    tan: { minArgs: 1, maxArgs: 1, apply: (args) => Math.tan(args[0]) },
+    asin: { minArgs: 1, maxArgs: 1, apply: (args) => Math.asin(args[0]) },
+    acos: { minArgs: 1, maxArgs: 1, apply: (args) => Math.acos(args[0]) },
+    atan: { minArgs: 1, maxArgs: 1, apply: (args) => Math.atan(args[0]) },
+    atan2: { minArgs: 2, maxArgs: 2, apply: (args) => Math.atan2(args[0], args[1]) },
+    sinh: { minArgs: 1, maxArgs: 1, apply: (args) => Math.sinh(args[0]) },
+    cosh: { minArgs: 1, maxArgs: 1, apply: (args) => Math.cosh(args[0]) },
+    tanh: { minArgs: 1, maxArgs: 1, apply: (args) => Math.tanh(args[0]) },
+
+    // Roots / powers
+    sqrt: {
+        minArgs: 1,
+        maxArgs: 1,
+        apply: (args) => {
+            if (args[0] < 0) {
+                throw new Error('sqrt() of a negative number is undefined');
+            }
+            return Math.sqrt(args[0]);
+        },
+    },
+    cbrt: { minArgs: 1, maxArgs: 1, apply: (args) => Math.cbrt(args[0]) },
+    pow: { minArgs: 2, maxArgs: 2, apply: (args) => Math.pow(args[0], args[1]) },
+
+    // Logarithms / exponentials
+    log: {
+        // log(x)        -> base 10
+        // log(x, base)  -> custom base
+        minArgs: 1,
+        maxArgs: 2,
+        apply: (args) => {
+            const x = args[0];
+            if (x <= 0) {
+                throw new Error('log() requires a positive number');
+            }
+            if (args.length === 1) {
+                return Math.log10(x);
+            }
+            const base = args[1];
+            if (base <= 0 || base === 1) {
+                throw new Error('log() base must be positive and not equal to 1');
+            }
+            return Math.log(x) / Math.log(base);
+        },
+    },
+    ln: {
+        minArgs: 1,
+        maxArgs: 1,
+        apply: (args) => {
+            if (args[0] <= 0) {
+                throw new Error('ln() requires a positive number');
+            }
+            return Math.log(args[0]);
+        },
+    },
+    log2: {
+        minArgs: 1,
+        maxArgs: 1,
+        apply: (args) => {
+            if (args[0] <= 0) {
+                throw new Error('log2() requires a positive number');
+            }
+            return Math.log2(args[0]);
+        },
+    },
+    exp: { minArgs: 1, maxArgs: 1, apply: (args) => Math.exp(args[0]) },
+
+    // Rounding
+    floor: { minArgs: 1, maxArgs: 1, apply: (args) => Math.floor(args[0]) },
+    ceil: { minArgs: 1, maxArgs: 1, apply: (args) => Math.ceil(args[0]) },
+    round: { minArgs: 1, maxArgs: 1, apply: (args) => Math.round(args[0]) },
+    trunc: { minArgs: 1, maxArgs: 1, apply: (args) => Math.trunc(args[0]) },
+
+    // Misc
+    abs: { minArgs: 1, maxArgs: 1, apply: (args) => Math.abs(args[0]) },
+    sign: { minArgs: 1, maxArgs: 1, apply: (args) => Math.sign(args[0]) },
+    factorial: { minArgs: 1, maxArgs: 1, apply: (args) => factorial(args[0]) },
+
+    // Variadic
+    min: { minArgs: 1, maxArgs: Infinity, apply: (args) => Math.min(...args) },
+    max: { minArgs: 1, maxArgs: Infinity, apply: (args) => Math.max(...args) },
+    hypot: { minArgs: 1, maxArgs: Infinity, apply: (args) => Math.hypot(...args) },
+    sum: {
+        minArgs: 1,
+        maxArgs: Infinity,
+        apply: (args) => args.reduce((total, value) => total + value, 0),
+    },
+    avg: {
+        minArgs: 1,
+        maxArgs: Infinity,
+        apply: (args) => args.reduce((total, value) => total + value, 0) / args.length,
+    },
+};
+
+const CONSTANTS: Record<string, number> = {
+    pi: Math.PI,
+    e: Math.E,
+};
 
 export function evaluateExpression(
     expression: string,
@@ -84,6 +215,57 @@ export function evaluateExpression(
         return value;
     };
 
+    const parseIdentifierName = (): string => {
+        const start = index;
+        while (index < normalized.length && /[a-zA-Z0-9]/.test(normalized[index])) {
+            checkDeadline();
+            index += 1;
+        }
+        return normalized.slice(start, index);
+    };
+
+    const parseArgumentList = (): number[] => {
+        const args: number[] = [];
+        if (normalized[index] === ')') {
+            return args;
+        }
+
+        args.push(parseAddition());
+        while (normalized[index] === ',') {
+            consume(',');
+            args.push(parseAddition());
+        }
+        return args;
+    };
+
+    const parseIdentifier = (): number => {
+        const name = parseIdentifierName().toLowerCase();
+
+        if (normalized[index] === '(') {
+            consume('(');
+            const args = parseArgumentList();
+            if (index >= normalized.length) {
+                throw new Error('Unexpected end of expression');
+            }
+            consume(')');
+
+            const fn = FUNCTIONS[name];
+            if (!fn) {
+                throw new Error(`Unknown function: ${name}`);
+            }
+            if (args.length < fn.minArgs || args.length > fn.maxArgs) {
+                throw new Error(`${name}() received an unexpected number of arguments`);
+            }
+            return fn.apply(args);
+        }
+
+        if (name in CONSTANTS) {
+            return CONSTANTS[name];
+        }
+
+        throw new Error(`Unknown identifier: ${name}`);
+    };
+
     const parsePrimary = (): number => {
         if (index >= normalized.length) {
             throw new Error('Unexpected end of expression');
@@ -104,7 +286,24 @@ export function evaluateExpression(
             return parseNumber();
         }
 
+        if (/[a-zA-Z]/.test(char)) {
+            return parseIdentifier();
+        }
+
         throw new Error(`Unsupported character: ${char}`);
+    };
+
+    // Handles postfix factorial (e.g. "5!", "(2+3)!"). Binds tighter than exponentiation, so "2^3!" is 2^(3!) = 64, and "3!^2" is (3!)^2 = 36.
+    const parsePostfix = (): number => {
+        let value = parsePrimary();
+
+        while (index < normalized.length && normalized[index] === '!') {
+            checkDeadline();
+            consume('!');
+            value = factorial(value);
+        }
+
+        return value;
     };
 
     const parseUnary = (): number => {
@@ -127,7 +326,7 @@ export function evaluateExpression(
     };
 
     const parsePower = (): number => {
-        const left = parsePrimary();
+        const left = parsePostfix();
 
         if (index < normalized.length && normalized[index] === '^') {
             consume('^');
