@@ -285,7 +285,7 @@ async function handleGhostPingDelete(message: any): Promise<void> {
     }
 
     try {
-        await message.author.send(
+        await message.channel.send(
             'Ghost pings are not allowed here. Please avoid mentioning users or roles and then deleting the message immediately.',
         );
     } catch (error) {
