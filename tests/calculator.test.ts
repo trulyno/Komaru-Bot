@@ -16,7 +16,7 @@ async function runTests() {
 
     runTestCase('calculator error handling', () => {
         assert.throws(() => evaluateExpression('2 + (3 - 1'), /Unexpected end/);
-        assert.throws(() => evaluateExpression('2 + process.exit(1)'), /Unsupported character/);
+        assert.throws(() => evaluateExpression('2 + process.exit(1)'), /Unknown identifier/);
     });
 
     runTestCase('calculator message parsing', () => {

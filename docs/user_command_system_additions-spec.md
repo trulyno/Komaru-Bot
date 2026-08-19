@@ -57,7 +57,7 @@ The bot can process strings in the command logic. For that, the string processin
 ```md
 scratch pole {remember [0]} # starting the pipeline with the input string
 |> split on " " # split the string on spaces - result in an array, but since we don't support arrays, it must be reduced to a string. if it isn't, throw an error
-|> filter {(item != "rock") and (item != "scissors")} # filter out the items that are not rock or scissors
+|> filter {(item is not "rock") and (item is not "scissors")} # filter out the items that are not rock or scissors
 |> join on "" # join the array back to a string
 |> save [0] # save the result in the variable 0
 ```
@@ -83,6 +83,8 @@ Other pipeline instructions are:
 - `return` - end the sub-pipeline
 
 The bot will throw an error if the pipeline is not valid.
+
+Subpipelines can optionally add `|` characters in front to indicate that the instructions are part of a sub-pipeline, but this is visual only and not required.
 
 Outside the pipeline, string instructions that return booleans can be used, like `is`, `is not`,`contains`, `starts with`, `ends with`, etc.
 

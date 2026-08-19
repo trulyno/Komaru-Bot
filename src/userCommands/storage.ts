@@ -170,6 +170,103 @@ export class UserCommandStorage {
         return all.filter((cmd) => cmd.metadata.author === authorId);
     }
 
+    public findCommandsByTrigger(trigger: string): Array<{ commandName: string; triggerValue: string }> {
+        const normalizedInput = trigger.trim().toLowerCase();
+        if (!normalizedInput) {
+            return [];
+        }
+
+        const all = this.loadAllCommands();
+        const exactMatches = all.filter((cmd) => {
+            const triggerValue = cmd.trigger.value.toLowerCase();
+            return triggerValue === normalizedInput;
+        });
+
+        const scoredMatches = all
+            .map((cmd) => {
+                const triggerValue = cmd.trigger.value.toLowerCase();
+                const similarity = this.getTriggerSimilarity(normalizedInput, triggerValue);
+                return {
+                    commandName: cmd.metadata.name,
+                    triggerValue: cmd.trigger.value,
+                    similarity,
+                };
+            })
+            .filter((match) => match.similarity > 0)
+            .sort((a, b) => b.similarity - a.similarity);
+
+        const dedupedMatches = new Map<string, { commandName: string; triggerValue: string }>();
+        for (const match of exactMatches) {
+            dedupedMatches.set(match.metadata.name, {
+                commandName: match.metadata.name,
+                triggerValue: match.trigger.value,
+            });
+        }
+
+        for (const match of scoredMatches) {
+            if (!dedupedMatches.has(match.commandName)) {
+                dedupedMatches.set(match.commandName, {
+                    commandName: match.commandName,
+                    triggerValue: match.triggerValue,
+                });
+            }
+        }
+
+        return Array.from(dedupedMatches.values()).slice(0, 10);
+    }
+
+    private getTriggerSimilarity(input: string, candidate: string): number {
+        if (!input || !candidate) {
+            return 0;
+        }
+
+        if (candidate === input) {
+            return 1000;
+        }
+
+        const inputWords = input.split(/\s+/).filter(Boolean);
+        const candidateWords = candidate.split(/\s+/).filter(Boolean);
+
+        if (inputWords.length === 0 || candidateWords.length === 0) {
+            return 0;
+        }
+
+        let score = 0;
+        const normalizedInput = inputWords.join(' ');
+        const normalizedCandidate = candidateWords.join(' ');
+
+        if (normalizedInput.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedInput)) {
+            score += 200;
+        }
+
+        for (const word of inputWords) {
+            if (candidate.includes(word)) {
+                score += 40;
+            }
+        }
+
+        for (const word of candidateWords) {
+            if (input.includes(word)) {
+                score += 20;
+            }
+        }
+
+        const commonPrefixLength = this.getCommonPrefixLength(input, candidate);
+        if (commonPrefixLength > 0) {
+            score += commonPrefixLength * 10;
+        }
+
+        return score;
+    }
+
+    private getCommonPrefixLength(a: string, b: string): number {
+        let i = 0;
+        while (i < a.length && i < b.length && a[i] === b[i]) {
+            i++;
+        }
+        return i;
+    }
+
     public calculateUserStorage(authorId: string): number {
         const authorCmds = this.getCommandsByAuthor(authorId);
         let totalBytes = 0;

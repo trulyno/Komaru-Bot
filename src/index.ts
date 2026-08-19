@@ -3,7 +3,7 @@ import { logger, logError } from './logger';
 import { ModuleLoader } from './moduleLoader';
 import path from 'node:path';
 import { once } from 'node:events';
-import { restartBot, stopBot, syncCommands } from './commandHandlers';
+import { cleanAndSyncCommands, restartBot, stopBot, syncCommands } from './commandHandlers';
 import { commandRegistry } from './commandRegistry';
 
 const { Client, GatewayIntentBits } = require('discord.js');
@@ -125,6 +125,18 @@ async function main(): Promise<void> {
                 logger.error(`Failed to sync commands: ${error}`);
                 await message.reply('Unable to sync commands.');
             }
+        } else if (command === 'cleancommands') {
+            try {
+                if (clientId) {
+                    await cleanAndSyncCommands(token as string, clientId, guildId);
+                    await message.reply('Slash commands cleaned and re-registered.');
+                } else {
+                    await message.reply('Client ID not available.');
+                }
+            } catch (error) {
+                logger.error(`Failed to clean and re-register commands: ${error}`);
+                await message.reply('Unable to clean and re-register commands.');
+            }
         } else if (command === 'restartbot') {
             await message.reply('Restarting bot...');
             await restartBot();
@@ -152,4 +164,4 @@ main().catch((error: unknown) => {
     process.exit(1);
 });
 
-export { restartBot, stopBot, syncCommands };
+export { cleanAndSyncCommands, restartBot, stopBot, syncCommands };

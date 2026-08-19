@@ -95,11 +95,11 @@ you say "{remember [greeting]} {user}!"
 
         const storage = new UserCommandStorage(testDir);
         const raw8Ball = `
-name "8Ball"
-description "Asks the bot a question and it will answer with a random answer"
-when someone says "/8ball"
-you reply {choice {"Without a doubt", "It is certain", "Yes"}}
-`;
+        name "8Ball"
+        description "Asks the bot a question and it will answer with a random answer"
+        when someone says "/8ball"
+        you reply {choice {"Without a doubt", "It is certain", "Yes"}}
+        `;
         const parsed8Ball = parseUserCommand(raw8Ball, 'user_123');
         storage.saveCommand(parsed8Ball, raw8Ball);
 
@@ -127,6 +127,45 @@ you reply {choice {"Without a doubt", "It is certain", "Yes"}}
         const handled = await triggerPool.handleMessage(mockMessage);
         assert.strictEqual(handled, true);
         assert.ok(['Without a doubt', 'It is certain', 'Yes'].includes(repliedContent));
+    });
+
+    runTestCase('user command trigger lookup', () => {
+        const testDir = path.resolve(__dirname, '../data/test_user_commands_lookup');
+        if (fs.existsSync(testDir)) {
+            fs.rmSync(testDir, { recursive: true, force: true });
+        }
+
+        const storage = new UserCommandStorage(testDir);
+
+        const rawHello = `
+        name "Hello"
+        description "Replies hello"
+        when someone says "hello"
+        you reply "hi"
+        `;
+        const rawHelloWorld = `
+        name "HelloWorld"
+        description "Replies hello world"
+        when someone says "hello world"
+        you reply "hi"
+        `;
+        const rawHelp = `
+        name "Help"
+        description "Replies help"
+        when someone says "help"
+        you reply "ok"
+        `;
+
+        storage.saveCommand(parseUserCommand(rawHello, 'user_123'), rawHello);
+        storage.saveCommand(parseUserCommand(rawHelloWorld, 'user_123'), rawHelloWorld);
+        storage.saveCommand(parseUserCommand(rawHelp, 'user_123'), rawHelp);
+
+        const exactMatches = storage.findCommandsByTrigger('hello');
+        assert.ok(exactMatches.some((match) => match.commandName === 'Hello'));
+
+        const similarMatches = storage.findCommandsByTrigger('hello worl');
+        assert.ok(similarMatches.some((match) => match.commandName === 'HelloWorld'));
+        assert.ok(similarMatches.some((match) => match.commandName === 'Hello'));
     });
 
     runTestCase('user command config and quotas', () => {
@@ -180,6 +219,10 @@ you reply {choice {"Without a doubt", "It is certain", "Yes"}}
         force: true,
     });
     fs.rmSync(path.resolve(__dirname, '../data/test_user_commands_config'), {
+        recursive: true,
+        force: true,
+    });
+    fs.rmSync(path.resolve(__dirname, '../data/test_user_commands_lookup'), {
         recursive: true,
         force: true,
     });

@@ -276,6 +276,39 @@ const moduleDefinition = {
         });
 
         commandRegistry.register({
+            name: 'find_command',
+            description: 'Find user commands by trigger text, including similar triggers',
+            options: [{ name: 'trigger', description: 'Trigger text to search for', type: 3, required: true }],
+            handler: async (interaction: any) => {
+                const trigger = interaction.options?.getString?.('trigger');
+                if (!trigger) {
+                    await interaction.reply({
+                        content: 'Usage: /find_command <trigger>',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const matches = storage.findCommandsByTrigger(trigger);
+                if (matches.length === 0) {
+                    await interaction.reply({
+                        content: `No matching commands found for trigger **${trigger}**.`,
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const lines = matches.map(
+                    (match) => `- **${match.commandName}**: \`${match.triggerValue}\``,
+                );
+                await interaction.reply({
+                    content: `**Matching commands for trigger \"${trigger}\":**\n${lines.join('\n')}`,
+                    ephemeral: true,
+                });
+            },
+        });
+
+        commandRegistry.register({
             name: 'report_command',
             description: 'Report a user command for rule breaking',
             options: [
@@ -675,6 +708,19 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             await message.reply(
                 `**Storage Quota Info for <@${userId}>:**\n- **Usage:** ${currentMb} MB / ${maxMb} MB\n- **Status:** ${isRestricted ? '❌ Restricted' : '✅ Allowed'}`,
             );
+            return true;
+        }
+        case 'find_command': {
+            if (!arg1) return false;
+            const matches = storage.findCommandsByTrigger(arg1);
+            if (matches.length === 0) {
+                await message.reply(`No matching commands found for trigger **${arg1}**.`);
+                return true;
+            }
+            const lines = matches.map(
+                (match) => `- **${match.commandName}**: \`${match.triggerValue}\``,
+            );
+            await message.reply(`**Matching commands for trigger \"${arg1}\":**\n${lines.join('\n')}`);
             return true;
         }
         case 'report_command': {
