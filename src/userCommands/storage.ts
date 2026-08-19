@@ -91,19 +91,28 @@ export class UserCommandStorage {
 
     public getCommand(name: string): UserCommandJson | null {
         const jsonPath = path.join(this.baseDir, `${name}.json`);
-        if (!fs.existsSync(jsonPath)) {
-            return null;
+        if (fs.existsSync(jsonPath)) {
+            try {
+                const content = fs.readFileSync(jsonPath, 'utf-8');
+                return JSON.parse(content) as UserCommandJson;
+            } catch {
+                return null;
+            }
         }
-        try {
-            const content = fs.readFileSync(jsonPath, 'utf-8');
-            return JSON.parse(content) as UserCommandJson;
-        } catch {
-            return null;
-        }
+
+        // Check if name is an alias
+        const allCmds = this.loadAllCommands();
+        const foundByAlias = allCmds.find(
+            (c) => c.aliases && c.aliases.some((a) => a.toLowerCase() === name.toLowerCase()),
+        );
+        return foundByAlias || null;
     }
 
     public getRawCommand(name: string): string | null {
-        const mdPath = path.join(this.baseDir, `${name}.md`);
+        const cmd = this.getCommand(name);
+        if (!cmd) return null;
+
+        const mdPath = path.join(this.baseDir, `${cmd.metadata.name}.md`);
         if (!fs.existsSync(mdPath)) {
             return null;
         }
@@ -161,6 +170,26 @@ export class UserCommandStorage {
         });
 
         const newRaw = found ? updatedLines.join('\n') : `${raw}\n${triggerStr}`;
+        this.saveCommand(cmd, newRaw);
+        return true;
+    }
+
+    public addAliasToCommand(name: string, newAlias: string): boolean {
+        const cmd = this.getCommand(name);
+        if (!cmd) return false;
+
+        const aliases = cmd.aliases || [];
+        if (aliases.some((a) => a.toLowerCase() === newAlias.toLowerCase())) {
+            return true;
+        }
+
+        aliases.push(newAlias);
+        cmd.aliases = aliases;
+
+        const raw = this.getRawCommand(name) || '';
+        const aliasLine = `alias "${newAlias}"`;
+        const newRaw = `${raw}\n${aliasLine}`;
+
         this.saveCommand(cmd, newRaw);
         return true;
     }

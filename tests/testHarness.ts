@@ -1,7 +1,10 @@
-export function runTestCase(name: string, fn: () => void): void {
+export async function runTestCase(
+    name: string,
+    fn: () => void | Promise<void>,
+): Promise<void> {
     console.log(`[TEST] ${name}`);
     try {
-        fn();
+        await fn();
         console.log(`[PASS] ${name}`);
     } catch (error) {
         console.log(`[FAIL] ${name}`);

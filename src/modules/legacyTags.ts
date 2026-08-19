@@ -25,6 +25,21 @@ interface LegacyTagNavigationFile {
     aliases?: Record<string, string>;
 }
 
+async function safeReply(message: any, options: any): Promise<void> {
+    try {
+        await message.reply(options);
+    } catch (error) {
+        try {
+            if (message.channel?.send) {
+                const payload = typeof options === 'string' ? { content: options } : options;
+                await message.channel.send(payload);
+            }
+        } catch (channelError) {
+            logger.warn(`Failed to send fallback message response: ${channelError}`);
+        }
+    }
+}
+
 const moduleDefinition = {
     name: 'legacyTags',
     description: 'Read-only legacy tag system',
@@ -42,7 +57,7 @@ const moduleDefinition = {
             try {
                 const body = content.replace(/^%t/i, '').trim();
                 if (!body) {
-                    await message.reply('Usage: `%t <tag_name_or_alias>`');
+                    await safeReply(message, 'Usage: `%t <tag_name_or_alias>`');
                     return;
                 }
 
@@ -50,7 +65,8 @@ const moduleDefinition = {
                 const command = parts[0]?.toLowerCase();
 
                 if (command === 'create') {
-                    await message.reply(
+                    await safeReply(
+                        message,
                         'Tags are read-only in this bot. Please use the command system to create new commands instead.',
                     );
                     return;
@@ -59,11 +75,11 @@ const moduleDefinition = {
                 const tagName = parts[0];
                 const response = await resolveAndReplyTag(tagName, message);
                 if (!response) {
-                    await message.reply(`Tag **${tagName}** was not found.`);
+                    await safeReply(message, `Tag **${tagName}** was not found.`);
                 }
             } catch (error) {
                 logger.error(`Error handling legacy tag lookup: ${error}`);
-                await message.reply('Unable to retrieve that legacy tag right now.');
+                await safeReply(message, 'Unable to retrieve that legacy tag right now.');
             }
         });
     },
@@ -94,7 +110,7 @@ async function resolveAndReplyTag(tagName: string, message: any): Promise<boolea
     }
 
     if (entry.type?.toLowerCase() === 'logic') {
-        await message.reply('Logic tags are not supported in this read-only legacy tag system.');
+        await safeReply(message, 'Logic tags are not supported in this read-only legacy tag system.');
         return true;
     }
 
@@ -122,19 +138,19 @@ async function resolveAndReplyTag(tagName: string, message: any): Promise<boolea
         .filter((filePath) => fs.existsSync(filePath));
 
     if (content && attachments.length > 0) {
-        await message.reply({
+        await safeReply(message, {
             content: content,
             files: attachments,
         });
     } else if (content) {
-        await message.reply(content);
+        await safeReply(message, content);
     } else if (attachments.length > 0) {
-        await message.reply({
+        await safeReply(message, {
             content: '',
             files: attachments,
         });
     } else {
-        await message.reply(`Tag **${canonicalName}** exists but has no content or media.`);
+        await safeReply(message, `Tag **${canonicalName}** exists but has no content or media.`);
     }
 
     return true;

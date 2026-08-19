@@ -15,21 +15,28 @@ export interface RoleQuotaConfig {
     [roleKey: string]: number; // extra quota in MB for role
 }
 
+export interface AppSettingsConfig {
+    allowPublicAliases: boolean;
+}
+
 export class ConfigStore {
     private baseDir: string;
     private roleQuotasFile: string;
     private restrictionsFile: string;
     private reportsFile: string;
+    private settingsFile: string;
 
     private roleQuotas: RoleQuotaConfig = { default: 5, vip: 5 }; // default base 5MB, vip +5MB
     private restrictedUsers: Set<string> = new Set();
     private reports: CommandReport[] = [];
+    private allowPublicAliases: boolean = true;
 
     constructor(baseDir?: string) {
         this.baseDir = baseDir || path.resolve(process.cwd(), 'data', 'user_commands_config');
         this.roleQuotasFile = path.join(this.baseDir, 'role_quotas.json');
         this.restrictionsFile = path.join(this.baseDir, 'restrictions.json');
         this.reportsFile = path.join(this.baseDir, 'reports.json');
+        this.settingsFile = path.join(this.baseDir, 'settings.json');
         this.loadAll();
     }
 
@@ -74,6 +81,21 @@ export class ConfigStore {
                 logger.error(`Error loading reports: ${err}`);
             }
         }
+
+        // Load settings
+        if (fs.existsSync(this.settingsFile)) {
+            try {
+                const content = fs.readFileSync(this.settingsFile, 'utf-8');
+                const parsed: AppSettingsConfig = JSON.parse(content);
+                if (typeof parsed.allowPublicAliases === 'boolean') {
+                    this.allowPublicAliases = parsed.allowPublicAliases;
+                }
+            } catch (err) {
+                logger.error(`Error loading settings: ${err}`);
+            }
+        } else {
+            this.saveSettings();
+        }
     }
 
     // Role Quota Methods
@@ -99,6 +121,24 @@ export class ConfigStore {
     private saveRoleQuotas(): void {
         this.ensureDirectory();
         fs.writeFileSync(this.roleQuotasFile, JSON.stringify(this.roleQuotas, null, 4), 'utf-8');
+    }
+
+    // Public Alias Settings Methods
+    public getAllowPublicAliases(): boolean {
+        return this.allowPublicAliases;
+    }
+
+    public setAllowPublicAliases(allow: boolean): void {
+        this.allowPublicAliases = allow;
+        this.saveSettings();
+    }
+
+    private saveSettings(): void {
+        this.ensureDirectory();
+        const settingsData: AppSettingsConfig = {
+            allowPublicAliases: this.allowPublicAliases,
+        };
+        fs.writeFileSync(this.settingsFile, JSON.stringify(settingsData, null, 4), 'utf-8');
     }
 
     // User Restriction Methods

@@ -5,6 +5,11 @@ export interface UserCommandMetadata {
     name: string;
     description: string;
     raw: string;
+    cooldown?: number;
+    roles?: string[];
+    channels?: string[];
+    enabled?: boolean;
+    lastUsed?: Record<string, number>; // timestamp per user or global
 }
 
 export type TriggerType = 'string' | 'regex';
@@ -16,7 +21,15 @@ export interface UserCommandTrigger {
     scope: TriggerScope;
 }
 
-export type ActionType = 'say' | 'reply' | 'whisper' | 'send' | 'memorize';
+export type ActionType =
+    | 'say'
+    | 'reply'
+    | 'whisper'
+    | 'send'
+    | 'memorize'
+    | 'embed'
+    | 'ponder'
+    | 'pipeline';
 
 export interface ComplexValue {
     type: 'choice' | 'random' | 'calc' | 'remember' | 'literal';
@@ -26,7 +39,60 @@ export interface ComplexValue {
     slot?: number;
 }
 
-export type ActionValue = string | ComplexValue;
+export type ActionValue = string | ComplexValue | EmbedData | PonderData | PipelineData;
+
+export interface EmbedField {
+    name: string;
+    value: string;
+    inline?: boolean;
+}
+
+export interface EmbedData {
+    title?: string;
+    description?: string;
+    color?: string;
+    fields?: EmbedField[];
+}
+
+export interface PonderBranch {
+    condition: string;
+    actions: UserCommandAction[];
+}
+
+export interface PonderData {
+    branches: PonderBranch[];
+    otherwise?: UserCommandAction[];
+}
+
+export type PipelineOpType =
+    | 'split'
+    | 'filter'
+    | 'join'
+    | 'save'
+    | 'first'
+    | 'last'
+    | 'trim'
+    | 'lower'
+    | 'upper'
+    | 'as_number'
+    | 'reverse'
+    | 'sort'
+    | 'sort_reverse'
+    | 'shuffle'
+    | 'pole'
+    | 'return';
+
+export interface PipelineStep {
+    type: PipelineOpType;
+    arg?: string;
+    varSlot?: number;
+    condition?: string;
+}
+
+export interface PipelineData {
+    source: string;
+    steps: PipelineStep[];
+}
 
 export interface UserCommandAction {
     type: ActionType;
@@ -48,6 +114,8 @@ export interface UserCommandJson {
     trigger: UserCommandTrigger;
     actions: UserCommandAction[];
     varAliases?: Record<string, number>;
+    aliases?: string[];
+    coauthors?: string[];
 }
 
 export interface PendingSession {

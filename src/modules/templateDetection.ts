@@ -198,13 +198,21 @@ function buildModal(templateType: 'issue' | 'suggestion'): ModalBuilder {
 }
 
 function getFieldValues(interaction: ModalSubmitInteraction): Record<string, string> {
+    const getSafe = (customId: string) => {
+        try {
+            return interaction.fields.getTextInputValue(customId).trim();
+        } catch {
+            return '';
+        }
+    };
+
     return {
-        modpackVersion: interaction.fields.getTextInputValue('modpackVersion').trim(),
-        isOnServer: interaction.fields.getTextInputValue('isOnServer').trim(),
-        modifications: interaction.fields.getTextInputValue('modifications').trim(),
-        description: interaction.fields.getTextInputValue('description').trim(),
-        fit: interaction.fields.getTextInputValue('fit').trim(),
-        issues: interaction.fields.getTextInputValue('issues').trim(),
+        modpackVersion: getSafe('modpackVersion'),
+        isOnServer: getSafe('isOnServer'),
+        modifications: getSafe('modifications'),
+        description: getSafe('description'),
+        fit: getSafe('fit'),
+        issues: getSafe('issues'),
     };
 }
 

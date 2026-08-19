@@ -61,7 +61,7 @@ const moduleDefinition = {
                 }
 
                 try {
-                    const sentMessage = await message.channel.sendMessage(payload);
+                    const sentMessage = await message.channel.send(payload);
                     if (content === 'The same user cannot take two actions in a row. Please wait for another player.') {
                         setTimeout(async () => {
                             try {

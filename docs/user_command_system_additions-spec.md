@@ -20,7 +20,10 @@ you say "pong" # bot send a message saying "pong"
 
 ### Quick command creation
 
-Sometimes the commands might just display some text or images, without any other shennanigans. For that you can use a simplified syntax that starts with `qt`, followed by the trigger (also can be a string or a regex), and any other text or files attached to the messages are automatically added to the command.
+Sometimes the commands might just display some text or images, without any other shenanigans. For that you can use a simplified syntax that starts with `qt`, followed by the trigger (which can be a string or a regex). Any other text or attached files are automatically converted into a `you reply` action.
+
+- `qt "trigger"` - Defaults to `when someone says "trigger"`
+- `qt i "trigger"` - Scoped to author: `when I say "trigger"`
 
 ```md
 @bot
@@ -28,94 +31,116 @@ qt "ping"
 **This is some text**. Maybe some files are also attached?
 ```
 
-### Trigger as input
+### Trigger as input & Regex Capture Groups
 
-Sometimes the user might want to use a trigger as input in the logic of the command (such as for rock paper scissors). In that case, the message that the user sent and triggered the command is saved in the variable `input`. The user can then use that variable in the command logic.
+Sometimes the user might want to use the triggering message as input in the logic of the command (such as for rock paper scissors). The triggering message is saved in the variable `{input}`.
 
 ```md
 @bot
 when I say "rock"
-you say "You chose rock"
 you say "You chose {input}"
 ```
 
-### Limits
+For regex triggers, capture groups are automatically stored in `{match [1]}`, `{match [2]}`, etc.
 
-Commands should not be abused by the users, such as spamming. to prevent that, some new metadatas can be set for the commands.
+```md
+@bot
+when someone says /!rps (rock|paper|scissors)/
+you say "You picked {match [1]}!"
+```
 
-- `meta cooldown` - the cooldown in seconds for the command (default: 5s, compare with `last_used` metadata)
-- `meta roles role1, role2, ...` - the roles that can use the command (default: everyone)
-- `meta channels channel1, channel2, ...` - the channels that can use the command (default: everyone)
-- `meta enabled true/false` - whether the command is enabled or not (default: true)
+### Limits & Metadata
 
-These metadatas cannot be changed by the author of the command, but they can be changed by administrators.
+Commands should not be abused by users (e.g., spamming). To prevent that, metadata settings can be defined:
+
+- `meta cooldown <seconds>` - Cooldown in seconds for the command (default: 5s, minimum server limit: 3s).
+- `meta roles role1, role2, ...` - Roles allowed to use the command (default: everyone).
+- `meta channels channel1, channel2, ...` - Channels where the command can be used (default: all channels).
+- `meta enabled true/false` - Whether the command is active (default: true).
+
+Authors can set initial metadata upon creation, but administrators have override authority to update or lock these settings.
 
 ### String processing
 
-The bot can process strings in the command logic. For that, the string processing pipeline is introduced.
+The bot can process strings in the command logic using the `scratch pole` processing pipeline.
 
 ```md
 scratch pole {remember [0]} # starting the pipeline with the input string
-|> split on " " # split the string on spaces - result in an array, but since we don't support arrays, it must be reduced to a string. if it isn't, throw an error
-|> filter {(item is not "rock") and (item is not "scissors")} # filter out the items that are not rock or scissors
+|> split on " " # split the string on spaces - results in an array
+|> filter {(item is not "rock") and (item is not "scissors")} # filter out items that are not rock or scissors
 |> join on "" # join the array back to a string
-|> save [0] # save the result in the variable 0
+|> save [0] # save the result in variable 0
 ```
 
-This pipeline can be used in the command logic, and the bot will execute the commands in the pipeline in order.
-Other pipeline instructions are:
+Pipeline instructions:
 
 - `split on <string|regex>` - split the string on the given string or regex
-- `filter <expression>` - filter the items in the array, using the given expression
-- `join on <string>` - join the array back to a string, using the given string as a separator
+- `filter <expression>` - filter items in the array using a boolean expression
+- `join on <string>` - join the array back into a string using a separator
 - `save <variable>` - save the result in the given variable
 - `first` - get the first item in the array
 - `last` - get the last item in the array
-- `trim` - trim the string
+- `trim` - trim whitespace from the string
 - `lower` - convert the string to lowercase
 - `upper` - convert the string to uppercase
 - `as number` - convert the string to a number (not available for arrays)
-- `reverse` - reverse the string or the array
+- `reverse` - reverse the string or array
 - `sort` - sort the array
 - `sort reverse` - sort the array in reverse order
 - `shuffle` - shuffle the array
-- `pole` - start a new pipeline on the array elements (must end with a return)
+- `pole` - start a new sub-pipeline on array elements (must end with `return`)
 - `return` - end the sub-pipeline
 
-The bot will throw an error if the pipeline is not valid.
+If a pipeline ends on an unjoined array, the engine automatically coerces the items into a space-separated string. Subpipelines can optionally use leading `|` characters for visual clarity.
 
-Subpipelines can optionally add `|` characters in front to indicate that the instructions are part of a sub-pipeline, but this is visual only and not required.
-
-Outside the pipeline, string instructions that return booleans can be used, like `is`, `is not`,`contains`, `starts with`, `ends with`, etc.
+Outside the pipeline, boolean string comparisons can be used: `is`, `is not`, `contains`, `starts with`, `ends with`.
 
 ### Conditionals
 
-Sometimes the user might want to have a command only be triggered if a certain condition is met. For that, the bot can use the `ponder` instruction, which will evaluate the given expression and return a boolean value.
+Commands can evaluate conditions using the `ponder` instruction:
 
 ```md
 ponder {(input is "rock") and not (input is "scissors")} { # if
-you say "You chose rock"
+    you say "You chose rock"
 }
-ponder again {(input is "paper") and not (input is "rock")} { # if else
-you say "You chose paper"
+ponder again {(input is "paper") and not (input is "rock")} { # else if
+    you say "You chose paper"
 }
 otherwise { # else
-you say "You chose scissors"
+    you say "You chose scissors"
 }
 ```
 
-For the boolean expressions, the bot will use the following operators for strings and numbers:
+Boolean expression operators:
+- `and`, `or`, `not`
+- `is`, `is not`
+- `>`, `<`, `>=`, `<=`
 
-- and
-- or
-- not
-- is
-- is not
-- \>
-- <
-- \>=
-- <=
+### Rich Embed Actions (`you embed`)
 
-### Variables
+Commands can send formatted Discord embeds using the `you embed` statement:
 
-Variables are used to store values that can be used in the command logic.
+```md
+you embed {
+    title "Player Status"
+    description "{user} has executed the command!"
+    color "#6a5acd"
+    field "Choice" - "{input}"
+}
+```
+
+### System Context Variables
+
+Built-in variables provide environment details without requiring manual state tracking:
+
+- `{channel}` - Name of the current channel.
+- `{server}` - Name of the server/guild.
+- `{time}` - Current UTC time (HH:MM:SS).
+- `{date}` - Current UTC date (YYYY-MM-DD).
+
+### Command Aliases & Co-authors
+
+Authors can assign alternative triggers and delegate edit permissions:
+
+- `alias "p", "pong"` - Registers additional triggers for the command.
+- `coauthor "101421780907859968"` - Grants another user permission to edit or manage the command.

@@ -104,8 +104,9 @@ export class SessionManager {
             return false;
         }
 
-        // Check if full raw definition looks like a command definition (contains 'when ')
-        if (!fullRawDefinition.toLowerCase().includes('when ')) {
+        // Check if full raw definition looks like a command definition (contains 'when ' or starts with 'qt')
+        const lowerDef = fullRawDefinition.trim().toLowerCase();
+        if (!lowerDef.includes('when ') && !lowerDef.startsWith('qt')) {
             // Normal ping or non-command message, silently ignore per spec
             return false;
         }
@@ -117,6 +118,19 @@ export class SessionManager {
             }));
 
             const cmdJson = parseUserCommand(fullRawDefinition, authorId, mediaForParser);
+
+            // Check trigger / alias collision with existing commands
+            const conflictingCmd = this.triggerPool.findConflictingCommand(
+                cmdJson.trigger,
+                cmdJson.aliases,
+                cmdJson.metadata.name,
+            );
+            if (conflictingCmd && conflictingCmd.metadata.name.toLowerCase() !== cmdJson.metadata.name.toLowerCase()) {
+                await message.reply(
+                    `❌ Cannot register command **${cmdJson.metadata.name}**: trigger or alias \`${cmdJson.trigger.value}\` is already used by command **${conflictingCmd.metadata.name}**.`,
+                );
+                return true;
+            }
 
             // Calculate incoming bytes (raw text + json text + media buffers)
             const rawBytes = Buffer.byteLength(fullRawDefinition, 'utf-8');

@@ -5,6 +5,7 @@ import { QuotaManager } from '../userCommands/quotaManager';
 import { SessionManager } from '../userCommands/sessionManager';
 import { UserCommandStorage } from '../userCommands/storage';
 import { TriggerPool } from '../userCommands/triggerPool';
+import { getHelpTopicEmbed } from '../userCommands/helpProvider';
 import { UserCommandTrigger } from '../userCommands/types';
 
 const storage = new UserCommandStorage();
@@ -119,9 +120,11 @@ const moduleDefinition = {
                     return;
                 }
 
-                // Check ownership or admin
+                // Check ownership, coauthor, or admin
+                const isCoauthor = cmd.coauthors && cmd.coauthors.includes(interaction.user.id);
                 if (
                     cmd.metadata.author !== interaction.user.id &&
+                    !isCoauthor &&
                     !interaction.memberPermissions?.has?.('Administrator')
                 ) {
                     await interaction.reply({
@@ -563,6 +566,110 @@ const moduleDefinition = {
         });
 
         commandRegistry.register({
+            name: 'add_alias',
+            description: 'Adds an alias to an existing user command',
+            options: [
+                { name: 'name', description: 'Command name', type: 3, required: true },
+                { name: 'alias', description: 'New trigger alias to add', type: 3, required: true },
+            ],
+            handler: async (interaction: any) => {
+                const name = interaction.options?.getString?.('name');
+                const aliasStr = interaction.options?.getString?.('alias');
+
+                if (!name || !aliasStr) {
+                    await interaction.reply({
+                        content: 'Usage: /add_alias <name> <alias>',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const cmd = storage.getCommand(name);
+                if (!cmd) {
+                    await interaction.reply({
+                        content: `Command **${name}** not found.`,
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const allowPublic = configStore.getAllowPublicAliases();
+                const isAuthor = cmd.metadata.author === interaction.user.id;
+                const isCoauthor = cmd.coauthors && cmd.coauthors.includes(interaction.user.id);
+                const isAdmin =
+                    interaction.memberPermissions?.has?.('Administrator') ||
+                    isBotOwner(interaction.user.id, client);
+
+                if (!allowPublic && !isAuthor && !isCoauthor && !isAdmin) {
+                    await interaction.reply({
+                        content: '❌ Public alias addition is currently disabled by admins.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const dummyTrigger = { type: 'string', value: aliasStr };
+                const conflict = triggerPool.findConflictingCommand(dummyTrigger, [], name);
+                if (conflict) {
+                    await interaction.reply({
+                        content: `❌ Cannot add alias \`${aliasStr}\`: it is already used by command **${conflict.metadata.name}**.`,
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const success = storage.addAliasToCommand(name, aliasStr);
+                if (success) {
+                    triggerPool.loadFromStorage();
+                    await interaction.reply({
+                        content: `✅ Alias \`${aliasStr}\` added to command **${cmd.metadata.name}**!`,
+                        ephemeral: true,
+                    });
+                } else {
+                    await interaction.reply({
+                        content: `Failed to add alias to command **${name}**.`,
+                        ephemeral: true,
+                    });
+                }
+            },
+        });
+
+        commandRegistry.register({
+            name: 'set_public_aliases',
+            description: '[Admin] Enable or disable public alias creation by all users',
+            options: [
+                { name: 'enabled', description: 'Enable public alias creation (true/false)', type: 5, required: true },
+            ],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const enabled = interaction.options?.getBoolean?.('enabled');
+                if (enabled === undefined) {
+                    await interaction.reply({
+                        content: 'Usage: /set_public_aliases <true|false>',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                configStore.setAllowPublicAliases(enabled);
+                await interaction.reply({
+                    content: `✅ Public alias creation is now **${enabled ? 'enabled' : 'disabled'}**.`,
+                    ephemeral: true,
+                });
+            },
+        });
+
+        commandRegistry.register({
             name: 'view_storage_config',
             description: '[Admin] View role-based storage quota configuration',
             handler: async (interaction: any) => {
@@ -581,6 +688,28 @@ const moduleDefinition = {
                 const lines = Object.entries(quotas).map(([k, v]) => `- **${k}**: ${v} MB`);
                 await interaction.reply({
                     content: `**Role-Based Storage Quota Config:**\n${lines.join('\n')}`,
+                    ephemeral: true,
+                });
+            },
+        });
+
+        commandRegistry.register({
+            name: 'user_command_help',
+            description: 'Tutorial guide & documentation for the User Command System',
+            options: [
+                {
+                    name: 'topic',
+                    description:
+                        'Help topic (overview, quick, triggers, embeds, ponder, pipeline, meta, utility, admin)',
+                    type: 3,
+                    required: false,
+                },
+            ],
+            handler: async (interaction: any) => {
+                const topic = interaction.options?.getString?.('topic');
+                const embed = getHelpTopicEmbed(topic);
+                await interaction.reply({
+                    embeds: [embed],
                     ephemeral: true,
                 });
             },
@@ -807,6 +936,48 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             }
             return true;
         }
+        case 'add_alias': {
+            if (!arg1 || !restArgs) return false;
+            const cmd = storage.getCommand(arg1);
+            if (!cmd) {
+                await message.reply(`Command **${arg1}** not found.`);
+                return true;
+            }
+            const allowPublic = configStore.getAllowPublicAliases();
+            const isAuthor = cmd.metadata.author === userId;
+            const isCoauthor = cmd.coauthors && cmd.coauthors.includes(userId);
+            if (!allowPublic && !isAuthor && !isCoauthor && !isAdmin && !owner) {
+                await message.reply('❌ Public alias addition is currently disabled by admins.');
+                return true;
+            }
+            const dummyTrigger = { type: 'string', value: restArgs };
+            const conflict = triggerPool.findConflictingCommand(dummyTrigger, [], arg1);
+            if (conflict) {
+                await message.reply(
+                    `❌ Cannot add alias \`${restArgs}\`: it is already used by command **${conflict.metadata.name}**.`,
+                );
+                return true;
+            }
+            const success = storage.addAliasToCommand(arg1, restArgs);
+            if (success) {
+                triggerPool.loadFromStorage();
+                await message.reply(`✅ Alias \`${restArgs}\` added to command **${cmd.metadata.name}**!`);
+            } else {
+                await message.reply(`Failed to add alias to command **${arg1}**.`);
+            }
+            return true;
+        }
+        case 'set_public_aliases': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            if (!arg1) return false;
+            const enabled = arg1.toLowerCase() === 'true' || arg1 === '1';
+            configStore.setAllowPublicAliases(enabled);
+            await message.reply(`✅ Public alias creation is now **${enabled ? 'enabled' : 'disabled'}**.`);
+            return true;
+        }
         case 'set_role_storage': {
             // BOT OWNER ONLY
             if (!owner) {
@@ -831,6 +1002,13 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             const quotas = configStore.getRoleQuotas();
             const lines = Object.entries(quotas).map(([k, v]) => `- **${k}**: ${v} MB`);
             await message.reply(`**Role-Based Storage Quota Config:**\n${lines.join('\n')}`);
+            return true;
+        }
+        case 'user_command_help':
+        case 'usercommands_help':
+        case 'cmdhelp': {
+            const embed = getHelpTopicEmbed(arg1);
+            await message.reply({ embeds: [embed] });
             return true;
         }
     }
@@ -858,6 +1036,16 @@ function editCommandTrigger(name: string, newTriggerRaw: string): boolean {
             value: strVal,
             scope: 'everyone',
         };
+    }
+
+    const existingCmd = storage.getCommand(name);
+    const conflictingCmd = triggerPool.findConflictingCommand(
+        trigger,
+        existingCmd?.aliases || [],
+        name,
+    );
+    if (conflictingCmd) {
+        return false;
     }
 
     const success = storage.updateTrigger(name, trigger);

@@ -5,7 +5,7 @@ import { cleanAndSyncCommands } from '../src/commandHandlers';
 import { runTestCase } from './testHarness';
 
 async function runAdminTests(): Promise<void> {
-    runTestCase('admin module command registration', async () => {
+    await runTestCase('admin module command registration', async () => {
         const mockClient = { user: { id: 'mock_client_123' } };
         await adminModule.register(mockClient);
 
@@ -21,20 +21,19 @@ async function runAdminTests(): Promise<void> {
         assert.ok(syncCmd, 'synccommands should be registered');
     });
 
-    runTestCase('cleanAndSyncCommands execution with mocked REST API', async () => {
+    await runTestCase('cleanAndSyncCommands execution with mocked REST API', async () => {
         const puts: Array<{ route: string; body: any }> = [];
 
         const discordJs = require('discord.js');
-        const OriginalREST = discordJs.REST;
+        const originalPut = discordJs.REST.prototype.put;
+        const originalSetToken = discordJs.REST.prototype.setToken;
 
-        discordJs.REST = class MockREST {
-            setToken() {
-                return this;
-            }
-            async put(route: string, options: { body: any }) {
-                puts.push({ route, body: options.body });
-                return Promise.resolve();
-            }
+        discordJs.REST.prototype.setToken = function () {
+            return this;
+        };
+        discordJs.REST.prototype.put = async function (route: string, options: { body: any }) {
+            puts.push({ route, body: options.body });
+            return Promise.resolve();
         };
 
         try {
@@ -46,24 +45,24 @@ async function runAdminTests(): Promise<void> {
             assert.ok(Array.isArray(puts[2].body));
             assert.strictEqual(puts[2].body.length, commandRegistry.getAll().length);
         } finally {
-            discordJs.REST = OriginalREST;
+            discordJs.REST.prototype.put = originalPut;
+            discordJs.REST.prototype.setToken = originalSetToken;
         }
     });
 
-    runTestCase('cleanAndSyncCommands without guildId', async () => {
+    await runTestCase('cleanAndSyncCommands without guildId', async () => {
         const puts: Array<{ route: string; body: any }> = [];
 
         const discordJs = require('discord.js');
-        const OriginalREST = discordJs.REST;
+        const originalPut = discordJs.REST.prototype.put;
+        const originalSetToken = discordJs.REST.prototype.setToken;
 
-        discordJs.REST = class MockREST {
-            setToken() {
-                return this;
-            }
-            async put(route: string, options: { body: any }) {
-                puts.push({ route, body: options.body });
-                return Promise.resolve();
-            }
+        discordJs.REST.prototype.setToken = function () {
+            return this;
+        };
+        discordJs.REST.prototype.put = async function (route: string, options: { body: any }) {
+            puts.push({ route, body: options.body });
+            return Promise.resolve();
         };
 
         try {
@@ -74,7 +73,8 @@ async function runAdminTests(): Promise<void> {
             assert.ok(Array.isArray(puts[1].body));
             assert.strictEqual(puts[1].body.length, commandRegistry.getAll().length);
         } finally {
-            discordJs.REST = OriginalREST;
+            discordJs.REST.prototype.put = originalPut;
+            discordJs.REST.prototype.setToken = originalSetToken;
         }
     });
 }
