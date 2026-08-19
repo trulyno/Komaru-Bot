@@ -1,3 +1,5 @@
+import { evaluateExpression, VariableValues } from '../utils/calculator';
+
 export interface EvaluationContext {
     userMention: string;
     username: string;
@@ -8,29 +10,13 @@ export interface EvaluationContext {
 
 export function evaluateCalc(
     expression: string,
-    variables: Array<string | number> = [],
+    variables: VariableValues = [],
     varAliases?: Record<string, number>,
 ): number {
-    let sanitized = expression.trim();
-    // Replace variable references like remember [0] or remember [alias] or [0] in calc expression if present
-    sanitized = sanitized.replace(/remember\s*\[([a-zA-Z0-9_-]+)\]/gi, (_, ref) => {
-        const slot = resolveSlot(ref, varAliases);
-        const val = variables[slot];
-        return val !== undefined ? String(val) : '0';
-    });
-
-    sanitized = sanitized.replace(/\[([a-zA-Z0-9_-]+)\]/gi, (_, ref) => {
-        const slot = resolveSlot(ref, varAliases);
-        const val = variables[slot];
-        return val !== undefined ? String(val) : '0';
-    });
-
-    const tokens = tokenizeMath(sanitized);
-    const postfix = shuntingYard(tokens);
-    return evaluatePostfix(postfix);
+    return evaluateExpression(expression, variables, varAliases);
 }
 
-const resolveSlot = (ref: string, aliases?: Record<string, number>): number => {
+export const resolveSlot = (ref: string, aliases?: Record<string, number>): number => {
     const num = parseInt(ref, 10);
     if (!isNaN(num)) {
         return num;
@@ -39,168 +25,6 @@ const resolveSlot = (ref: string, aliases?: Record<string, number>): number => {
         return aliases[ref];
     }
     return 0;
-};
-
-type MathToken =
-    | { type: 'number'; value: number }
-    | { type: 'op'; value: string }
-    | { type: 'paren'; value: string };
-
-const tokenizeMath = (expr: string): MathToken[] => {
-    const tokens: MathToken[] = [];
-    let i = 0;
-
-    while (i < expr.length) {
-        const char = expr[i];
-
-        if (/\s/.test(char)) {
-            i++;
-            continue;
-        }
-
-        if (/[0-9.]/.test(char)) {
-            let numStr = '';
-            while (i < expr.length && /[0-9.]/.test(expr[i])) {
-                numStr += expr[i];
-                i++;
-            }
-            const val = parseFloat(numStr);
-            if (isNaN(val)) {
-                throw new Error(`Invalid number in calc: ${numStr}`);
-            }
-            tokens.push({ type: 'number', value: val });
-            continue;
-        }
-
-        if (['+', '-', '*', '/', '%'].includes(char)) {
-            // Handle unary minus / plus if preceded by op or start of expr
-            if (
-                (char === '-' || char === '+') &&
-                (tokens.length === 0 ||
-                    tokens[tokens.length - 1].type === 'op' ||
-                    (tokens[tokens.length - 1].type === 'paren' &&
-                        tokens[tokens.length - 1].value === '('))
-            ) {
-                let numStr = char;
-                i++;
-                while (i < expr.length && /\s/.test(expr[i])) i++;
-                if (i < expr.length && /[0-9.]/.test(expr[i])) {
-                    while (i < expr.length && /[0-9.]/.test(expr[i])) {
-                        numStr += expr[i];
-                        i++;
-                    }
-                    tokens.push({ type: 'number', value: parseFloat(numStr) });
-                    continue;
-                }
-            }
-            tokens.push({ type: 'op', value: char });
-            i++;
-            continue;
-        }
-
-        if (char === '(' || char === ')') {
-            tokens.push({ type: 'paren', value: char });
-            i++;
-            continue;
-        }
-
-        throw new Error(`Unexpected character in calc: '${char}'`);
-    }
-
-    return tokens;
-};
-
-const shuntingYard = (tokens: MathToken[]): MathToken[] => {
-    const output: MathToken[] = [];
-    const stack: MathToken[] = [];
-
-    const precedence: Record<string, number> = {
-        '+': 1,
-        '-': 1,
-        '*': 2,
-        '/': 2,
-        '%': 2,
-    };
-
-    for (const token of tokens) {
-        if (token.type === 'number') {
-            output.push(token);
-        } else if (token.type === 'op') {
-            while (
-                stack.length > 0 &&
-                stack[stack.length - 1].type === 'op' &&
-                precedence[(stack[stack.length - 1] as any).value] >= precedence[token.value]
-            ) {
-                output.push(stack.pop()!);
-            }
-            stack.push(token);
-        } else if (token.type === 'paren' && token.value === '(') {
-            stack.push(token);
-        } else if (token.type === 'paren' && token.value === ')') {
-            while (
-                stack.length > 0 &&
-                !(stack[stack.length - 1].type === 'paren' && stack[stack.length - 1].value === '(')
-            ) {
-                output.push(stack.pop()!);
-            }
-            if (
-                stack.length > 0 &&
-                stack[stack.length - 1].type === 'paren' &&
-                stack[stack.length - 1].value === '('
-            ) {
-                stack.pop();
-            } else {
-                throw new Error('Mismatched parentheses in calc');
-            }
-        }
-    }
-
-    while (stack.length > 0) {
-        const top = stack.pop()!;
-        if (top.type === 'paren') {
-            throw new Error('Mismatched parentheses in calc');
-        }
-        output.push(top);
-    }
-
-    return output;
-};
-
-const evaluatePostfix = (postfix: MathToken[]): number => {
-    const stack: number[] = [];
-
-    for (const token of postfix) {
-        if (token.type === 'number') {
-            stack.push(token.value);
-        } else if (token.type === 'op') {
-            if (stack.length < 2) {
-                throw new Error('Invalid math expression syntax');
-            }
-            const b = stack.pop()!;
-            const a = stack.pop()!;
-            let res = 0;
-            switch (token.value) {
-                case '+':
-                    res = a + b;
-                    break;
-                case '-':
-                    res = a - b;
-                    break;
-                case '*':
-                    res = a * b;
-                    break;
-                case '/':
-                    res = b === 0 ? 0 : a / b;
-                    break;
-                case '%':
-                    res = b === 0 ? 0 : a % b;
-                    break;
-            }
-            stack.push(res);
-        }
-    }
-
-    return stack.length > 0 ? stack[0] : 0;
 };
 
 export function evaluateChoice(options: string[]): string {

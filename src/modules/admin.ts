@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import { restartBot, stopBot, syncCommands } from '../commandHandlers';
+import { cleanAndSyncCommands, restartBot, stopBot, syncCommands } from '../commandHandlers';
 import { commandRegistry } from '../commandRegistry';
 
 const moduleDefinition = {
@@ -18,6 +18,26 @@ const moduleDefinition = {
                 } catch (error) {
                     logger.error(`Failed to sync commands: ${error}`);
                     await interaction.editReply('Unable to sync commands.');
+                }
+            },
+        });
+
+        commandRegistry.register({
+            name: 'cleancommands',
+            description: 'Clean all slash commands and re-register from command registry',
+            handler: async (interaction: any) => {
+                await interaction.deferReply({ ephemeral: true });
+                try {
+                    const guildId = process.env.DISCORD_GUILD_ID;
+                    await cleanAndSyncCommands(
+                        process.env.DISCORD_TOKEN!,
+                        client?.user?.id,
+                        guildId,
+                    );
+                    await interaction.editReply('Slash commands cleaned and re-registered.');
+                } catch (error) {
+                    logger.error(`Failed to clean and re-register commands: ${error}`);
+                    await interaction.editReply('Unable to clean and re-register commands.');
                 }
             },
         });

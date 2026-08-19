@@ -19,6 +19,7 @@ async function runTests() {
 
         assert.strictEqual(evaluateCalc('remember [0] + 5', [10]), 15);
         assert.strictEqual(evaluateCalc('remember [test] * 2', [0, 6], { test: 1 }), 12);
+        assert.strictEqual(evaluateCalc('sqrt(remember [0]) + 3', [16]), 7);
     });
 
     runTestCase('user command interpolation', () => {
@@ -34,6 +35,7 @@ async function runTests() {
         assert.strictEqual(interpolateString('Var 0: {remember [0]}', ctx), 'Var 0: hello');
         assert.strictEqual(interpolateString('Alias bar: {remember [bar]}', ctx), 'Alias bar: 42');
         assert.strictEqual(interpolateString('Calc: {calc {10 + 20}}', ctx), 'Calc: 30');
+        assert.strictEqual(interpolateString('Calc with var: {calc {remember [bar] / 2}}', ctx), 'Calc with var: 21');
     });
 
     runTestCase('user command parser 8ball', () => {
@@ -95,11 +97,11 @@ you say "{remember [greeting]} {user}!"
 
         const storage = new UserCommandStorage(testDir);
         const raw8Ball = `
-name "8Ball"
-description "Asks the bot a question and it will answer with a random answer"
-when someone says "/8ball"
-you reply {choice {"Without a doubt", "It is certain", "Yes"}}
-`;
+        name "8Ball"
+        description "Asks the bot a question and it will answer with a random answer"
+        when someone says "/8ball"
+        you reply {choice {"Without a doubt", "It is certain", "Yes"}}
+        `;
         const parsed8Ball = parseUserCommand(raw8Ball, 'user_123');
         storage.saveCommand(parsed8Ball, raw8Ball);
 
@@ -127,6 +129,45 @@ you reply {choice {"Without a doubt", "It is certain", "Yes"}}
         const handled = await triggerPool.handleMessage(mockMessage);
         assert.strictEqual(handled, true);
         assert.ok(['Without a doubt', 'It is certain', 'Yes'].includes(repliedContent));
+    });
+
+    runTestCase('user command trigger lookup', () => {
+        const testDir = path.resolve(__dirname, '../data/test_user_commands_lookup');
+        if (fs.existsSync(testDir)) {
+            fs.rmSync(testDir, { recursive: true, force: true });
+        }
+
+        const storage = new UserCommandStorage(testDir);
+
+        const rawHello = `
+        name "Hello"
+        description "Replies hello"
+        when someone says "hello"
+        you reply "hi"
+        `;
+        const rawHelloWorld = `
+        name "HelloWorld"
+        description "Replies hello world"
+        when someone says "hello world"
+        you reply "hi"
+        `;
+        const rawHelp = `
+        name "Help"
+        description "Replies help"
+        when someone says "help"
+        you reply "ok"
+        `;
+
+        storage.saveCommand(parseUserCommand(rawHello, 'user_123'), rawHello);
+        storage.saveCommand(parseUserCommand(rawHelloWorld, 'user_123'), rawHelloWorld);
+        storage.saveCommand(parseUserCommand(rawHelp, 'user_123'), rawHelp);
+
+        const exactMatches = storage.findCommandsByTrigger('hello');
+        assert.ok(exactMatches.some((match) => match.commandName === 'Hello'));
+
+        const similarMatches = storage.findCommandsByTrigger('hello worl');
+        assert.ok(similarMatches.some((match) => match.commandName === 'HelloWorld'));
+        assert.ok(similarMatches.some((match) => match.commandName === 'Hello'));
     });
 
     runTestCase('user command config and quotas', () => {
@@ -180,6 +221,10 @@ you reply {choice {"Without a doubt", "It is certain", "Yes"}}
         force: true,
     });
     fs.rmSync(path.resolve(__dirname, '../data/test_user_commands_config'), {
+        recursive: true,
+        force: true,
+    });
+    fs.rmSync(path.resolve(__dirname, '../data/test_user_commands_lookup'), {
         recursive: true,
         force: true,
     });
