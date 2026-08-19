@@ -19,6 +19,7 @@ async function runTests() {
 
         assert.strictEqual(evaluateCalc('remember [0] + 5', [10]), 15);
         assert.strictEqual(evaluateCalc('remember [test] * 2', [0, 6], { test: 1 }), 12);
+        assert.strictEqual(evaluateCalc('sqrt(remember [0]) + 3', [16]), 7);
     });
 
     runTestCase('user command interpolation', () => {
@@ -34,6 +35,7 @@ async function runTests() {
         assert.strictEqual(interpolateString('Var 0: {remember [0]}', ctx), 'Var 0: hello');
         assert.strictEqual(interpolateString('Alias bar: {remember [bar]}', ctx), 'Alias bar: 42');
         assert.strictEqual(interpolateString('Calc: {calc {10 + 20}}', ctx), 'Calc: 30');
+        assert.strictEqual(interpolateString('Calc with var: {calc {remember [bar] / 2}}', ctx), 'Calc with var: 21');
     });
 
     runTestCase('user command parser 8ball', () => {
