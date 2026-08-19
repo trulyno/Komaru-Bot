@@ -1,0 +1,78 @@
+{
+  "passBaseScore": 10,
+  "takeBaseScore": 12,
+  "gracePeriodSeconds": 5,
+  "deliciousThresholdMin": 25,
+  "deliciousThresholdMax": 75,
+  "idlePenaltyThresholdHours": 1,
+  "idlePenaltyMultiplier": 0.5,
+  "announcementTurnsBeforeDelicious": 2,
+  "passGifPath": "pass.gif",
+  "takeGifPath": "take.gif",
+  "events": [
+    {
+      "id": "score_boost",
+      "name": "Score Boost",
+      "description": "The take gets a 2x score boost.",
+      "type": "score_boost",
+      "chance": 0.12,
+      "multiplier": 2
+    },
+    {
+      "id": "chain_bonus",
+      "name": "Chain Bonus",
+      "description": "Everyone in the chain except the taker gets a small bonus.",
+      "type": "chain_bonus",
+      "chance": 0.1,
+      "bonusAmount": 5
+    },
+    {
+      "id": "golden_tuna",
+      "name": "Golden Tuna",
+      "description": "The taker receives a 3x multiplier.",
+      "type": "score_boost",
+      "chance": 0.08,
+      "multiplier": 3
+    },
+    {
+      "id": "spicy_tuna",
+      "name": "Spicy Tuna",
+      "description": "A spicy twist awards the taker extra points.",
+      "type": "score_boost",
+      "chance": 0.07,
+      "multiplier": 2.5
+    },
+    {
+      "id": "soggy_tuna",
+      "name": "Soggy Tuna",
+      "description": "The take is a little slippery and awards only a small bonus.",
+      "type": "score_boost",
+      "chance": 0.05,
+      "multiplier": 1.5
+    },
+    {
+      "id": "rotten_tuna",
+      "name": "Rotten Tuna",
+      "description": "The tuna is spoiled and awards no score.",
+      "type": "rotten",
+      "chance": 0.04,
+      "hidden": true
+    },
+    {
+      "id": "frozen_tuna",
+      "name": "Frozen Tuna",
+      "description": "The take is canceled and turned into a pass.",
+      "type": "frozen",
+      "chance": 0.03,
+      "hidden": true
+    },
+    {
+      "id": "tide_turn",
+      "name": "Tide Turn",
+      "description": "The chain swells with a bonus for the last pass.",
+      "type": "chain_bonus",
+      "chance": 0.06,
+      "bonusAmount": 8
+    }
+  ]
+}
