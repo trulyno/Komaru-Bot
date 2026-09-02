@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { logger } from './logger';
+import { config as globalConfig } from './config';
 
 export interface PassTheTunaEventConfig {
     id: string;
@@ -188,6 +189,9 @@ function mergeConfig(config?: Partial<PassTheTunaConfig>): PassTheTunaConfig {
 }
 
 export function loadPassTheTunaConfig(dataDir?: string): PassTheTunaConfig {
+    if (!dataDir) {
+        return globalConfig.tuna;
+    }
     const dir = resolvePassTheTunaDataDir(dataDir);
     ensureDir(dir);
     const configPath = path.join(dir, 'config.json');
@@ -607,7 +611,8 @@ function isAdmin(interaction: any): boolean {
     if (memberPermissions) {
         return true;
     }
-    if (process.env.BOT_OWNER_ID && interaction.user?.id === process.env.BOT_OWNER_ID) {
+    const botOwnerId = globalConfig.env.botOwnerId;
+    if (botOwnerId && interaction.user?.id === botOwnerId) {
         return true;
     }
     return false;

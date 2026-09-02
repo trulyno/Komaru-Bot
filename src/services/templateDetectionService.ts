@@ -10,61 +10,12 @@ import {
     type ModalSubmitInteraction,
 } from 'discord.js';
 import { logger } from '../logger';
+import { config } from '../config';
 
-export const ISSUE_TEMPLATE_FIELDS = [
-    'modpack version',
-    'is on server',
-    'modifications done',
-    'description',
-];
-
-export const SUGGESTION_TEMPLATE_FIELDS = [
-    'description',
-    'how would it fit with start',
-    'possible issues',
-];
-
-export const MODPACK_VERSIONS = [
-    'Theta 1 Hotfix 3',
-    'Theta 1 Hotfix 2',
-    'Theta 1 Hotfix 1',
-    'Theta 1',
-    'Eta 3 Hotfix 3',
-    'Eta 3 Hotfix 2',
-    'Eta 3 Hotfix 1',
-    'Eta 3',
-    'Eta 2 Hotfix 1',
-    'Eta 2',
-    'Eta Hotfix 3',
-    'Eta Hotfix 2',
-    'Eta Hotfix 1',
-    'Eta',
-    'Zeta Hotfix 5',
-    'Zeta Hotfix 4',
-    'Zeta Hotfix 3',
-    'Zeta Hotfix 2',
-    'Zeta Hotfix 1',
-    'Zeta',
-    'Epsilon Hotfix 4',
-    'Epsilon Hotfix 3',
-    'Epsilon Hotfix 2',
-    'Epsilon Hotfix 1',
-    'Epsilon',
-    'Delta Hotfix 3',
-    'Delta Hotfix 2',
-    'Delta Hotfix 1',
-    'Delta',
-];
-
-export const DEFAULT_EXAMPLES = {
-    modifications: 'Write here any additions you have made to the modpack',
-    description: 'Describe your issue',
-    suggestionTitle: '(Have a short title that will explain the general idea)',
-    suggestionDescription: '(Describe in detail the suggestion)',
-    suggestionFit: '(Explain why your idea will improve Star Technology)',
-    suggestionIssues:
-        '(List the possible issues that might arise from implementing your idea, if you can think of any)',
-};
+export const ISSUE_TEMPLATE_FIELDS = config.templates.issueTemplateFields;
+export const SUGGESTION_TEMPLATE_FIELDS = config.templates.suggestionTemplateFields;
+export const MODPACK_VERSIONS = config.templates.modpackVersions;
+export const DEFAULT_EXAMPLES = config.templates.defaultExamples;
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -215,12 +166,7 @@ export function getFieldValues(interaction: ModalSubmitInteraction): Record<stri
 }
 
 export async function removeInvalidTagsFromThread(thread: AnyThreadChannel): Promise<void> {
-    const configuredTags = (
-        process.env.TEMPLATE_INVALID_TAGS ?? 'invalid,needs template,template missing'
-    )
-        .split(',')
-        .map((tag) => tag.trim().toLowerCase())
-        .filter(Boolean);
+    const configuredTags = config.env.templateInvalidTags;
 
     if (configuredTags.length === 0 || thread.parent?.type !== ChannelType.GuildForum) {
         return;
@@ -265,8 +211,8 @@ export async function handleThreadTemplate(thread: AnyThreadChannel): Promise<vo
         return;
     }
 
-    const issueReportingChannelId = process.env.ISSUE_REPORTING_CHANNEL_ID;
-    const suggestionsChannelId = process.env.SUGGESTIONS_CHANNEL_ID;
+    const issueReportingChannelId = config.env.issueReportingChannelId;
+    const suggestionsChannelId = config.env.suggestionsChannelId;
     if (!issueReportingChannelId && !suggestionsChannelId) {
         return;
     }

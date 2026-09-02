@@ -8,6 +8,7 @@ import {
     normalizeRepository,
 } from '../githubReferences/prefixStore';
 import { logger } from '../logger';
+import { config } from '../config';
 
 interface GithubLabel {
     name: string;
@@ -60,11 +61,11 @@ export function canManageGithubPrefixes(member: any): boolean {
     }
 
     const configuredRoles = [
-        process.env.MODERATION_MODERATOR_ROLE_ID ??
-            process.env.MODERATION_MODERATOR_ROLE_NAME ??
+        config.env.moderationModeratorRoleId ??
+            config.env.moderationModeratorRoleName ??
             'Moderator',
-        process.env.MODERATION_ADMIN_ROLE_ID ??
-            process.env.MODERATION_ADMIN_ROLE_NAME ??
+        config.env.moderationAdminRoleId ??
+            config.env.moderationAdminRoleName ??
             'Administrator',
     ];
 
@@ -219,7 +220,7 @@ function hasGuildManagementPermission(interaction: any): boolean {
 }
 
 function isMainGuild(guildId: string): boolean {
-    return Boolean(process.env.DISCORD_GUILD_ID && guildId === process.env.DISCORD_GUILD_ID);
+    return Boolean(config.env.discordGuildId && guildId === config.env.discordGuildId);
 }
 
 const moduleDefinition = {

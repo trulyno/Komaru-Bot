@@ -7,6 +7,7 @@ import { UserCommandStorage } from '../userCommands/storage';
 import { TriggerPool } from '../userCommands/triggerPool';
 import { getHelpTopicEmbed } from '../userCommands/helpProvider';
 import { UserCommandTrigger } from '../userCommands/types';
+import { config } from '../config';
 
 const storage = new UserCommandStorage();
 const configStore = new ConfigStore();
@@ -18,7 +19,8 @@ const sessionManager = new SessionManager(storage, triggerPool, quotaManager);
 triggerPool.loadFromStorage();
 
 function isBotOwner(userId: string, client: any): boolean {
-    if (process.env.BOT_OWNER_ID && userId === process.env.BOT_OWNER_ID) {
+    const ownerId = config.env.botOwnerId;
+    if (ownerId && userId === ownerId) {
         return true;
     }
     const appOwnerId = client?.application?.owner?.id;

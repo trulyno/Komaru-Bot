@@ -1,6 +1,7 @@
 import { Colors, EmbedBuilder } from 'discord.js';
 import { commandRegistry } from '../commandRegistry';
 import { logger } from '../logger';
+import { config } from '../config';
 import {
     buildVerificationForm,
     getConfiguredAllowedChannels,
@@ -136,8 +137,7 @@ const moduleDefinition = {
 
                 await interaction.reply({ embeds: [embed] });
 
-                const targetChannelId =
-                    process.env.VERIFICATION_CHANNEL_ID ?? verificationChannelId;
+                const targetChannelId = config.env.verificationChannelId;
                 if (targetChannelId && targetChannelId !== interaction.channelId) {
                     try {
                         let notifyChannel: any =

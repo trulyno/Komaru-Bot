@@ -1,0 +1,7 @@
+{
+  "maxTimeoutMs": 2419200000,
+  "duplicateSpamWindowMs": 10000,
+  "ghostPingWindowMs": 10000,
+  "defaultModeratorRoleName": "Moderator",
+  "defaultAdminRoleName": "Administrator"
+}

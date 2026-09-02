@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { config } from './config';
 import { logger, logError } from './logger';
 import { ModuleLoader } from './moduleLoader';
 import path from 'node:path';
@@ -8,7 +9,7 @@ import { commandRegistry } from './commandRegistry';
 
 const { Client, GatewayIntentBits } = require('discord.js');
 
-const token = process.env.DISCORD_TOKEN;
+const token = config.env.discordToken;
 if (!token) {
     logger.error('DISCORD_TOKEN is not defined. Set it in your .env file.');
     process.exit(1);
@@ -70,7 +71,7 @@ async function main(): Promise<void> {
     await moduleLoader.registerAll(client);
 
     // Auto-sync slash commands to Discord after modules are loaded
-    const guildId = process.env.DISCORD_GUILD_ID;
+    const guildId = config.env.discordGuildId;
     const clientId = client.user?.id;
     if (clientId) {
         await syncCommands(token as string, clientId, guildId);

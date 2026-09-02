@@ -1,6 +1,7 @@
 import { logger } from '../logger';
 import { cleanAndSyncCommands, restartBot, stopBot, syncCommands } from '../commandHandlers';
 import { commandRegistry } from '../commandRegistry';
+import { config } from '../config';
 
 const moduleDefinition = {
     name: 'admin',
@@ -12,8 +13,8 @@ const moduleDefinition = {
             handler: async (interaction: any) => {
                 await interaction.deferReply({ ephemeral: true });
                 try {
-                    const guildId = process.env.DISCORD_GUILD_ID;
-                    await syncCommands(process.env.DISCORD_TOKEN!, client?.user?.id, guildId);
+                    const guildId = config.env.discordGuildId;
+                    await syncCommands(config.env.discordToken, client?.user?.id, guildId);
                     await interaction.editReply('Slash commands synced.');
                 } catch (error) {
                     logger.error(`Failed to sync commands: ${error}`);
@@ -28,9 +29,9 @@ const moduleDefinition = {
             handler: async (interaction: any) => {
                 await interaction.deferReply({ ephemeral: true });
                 try {
-                    const guildId = process.env.DISCORD_GUILD_ID;
+                    const guildId = config.env.discordGuildId;
                     await cleanAndSyncCommands(
-                        process.env.DISCORD_TOKEN!,
+                        config.env.discordToken,
                         client?.user?.id,
                         guildId,
                     );

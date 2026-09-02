@@ -25,6 +25,7 @@ Komaru Bot collects minimal data necessary to function properly and provide mode
 
 ### B. Information Persisted to Storage
 * **User-Created Commands & Media**: Custom user commands created via bot features are saved to disk (`data/user_commands/`). This includes command trigger names, text contents, metadata (author User ID), and user-uploaded media attachments.
+* **Support Ticket Records**: Support tickets opened via `/ticket` are stored on disk (`data/tickets/tickets.json`). Stored ticket fields include Ticket ID, Guild ID, Channel ID, Creator User ID, Creator Username/Tag, Ticket Subject, Ticket Description, Ticket Status (open, archived, deleted), and activity timestamps.
 * **System & Diagnostic Logs**: Operational logs are stored on disk (`logs/komaru-YYYY-MM-DD.log`) to debug bot errors and monitor performance.
 
 ---
@@ -32,8 +33,8 @@ Komaru Bot collects minimal data necessary to function properly and provide mode
 ## 2. How We Use Your Information
 
 The collected data is used exclusively for the following purposes:
-* **Bot Functionality**: Executing slash commands, custom user commands, role verification workflows, and automated responses.
-* **Moderation & Security**: Detecting duplicate message spam, tracking ghost pings, logging timeout updates, and recording message deletions in server-configured audit channels.
+* **Bot Functionality**: Executing slash commands, custom user commands, support ticket processing (`/ticket`), role verification workflows, and automated responses.
+* **Moderation & Security**: Detecting duplicate message spam, tracking ghost pings, logging timeout updates, managing ticket access controls, and recording message deletions / ticket status updates in server-configured audit channels.
 * **System Diagnostics**: Monitoring bot stability and fixing errors.
 
 We **do not** sell, rent, trade, or share user data with third parties.
@@ -44,9 +45,11 @@ We **do not** sell, rent, trade, or share user data with third parties.
 
 * **System Logs**: Operational log files are stored securely on the host system and automatically deleted after **14 days**.
 * **User Command Data**: User-created commands and associated media files persist until deleted by the user or a server administrator.
+* **Support Ticket Data**: Ticket data persists on disk for record-keeping and audit tracking until marked deleted or purged by a server administrator upon request.
 * **Data Removal Rights**: 
   * Users can delete their custom commands directly through the bot's command interfaces or request a full data wipe.
-  * You may request full removal of your stored data by contacting the bot administrator. Upon request, all associated command files and media will be permanently deleted from the host storage.
+  * Users can archive or request deletion of their support tickets.
+  * You may request full removal of your stored data by contacting the bot administrator. Upon request, all associated command files, ticket records, and media will be permanently deleted from the host storage.
 
 ---
 

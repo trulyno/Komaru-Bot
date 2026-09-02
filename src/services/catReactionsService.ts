@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { EmbedBuilder } from 'discord.js';
 import { logger } from '../logger';
+import { config } from '../config';
 
 export interface CatReactionsConfig {
     cat_triggers: string[];
@@ -18,48 +19,21 @@ export interface CatReactionsConfig {
 }
 
 export const loadCatReactionsConfig = (): CatReactionsConfig => {
-    const configPath = path.resolve(__dirname, '../../data/cat_reactions_config.json');
-
-    try {
-        const rawConfig = fs.readFileSync(configPath, 'utf8');
-        return JSON.parse(rawConfig) as CatReactionsConfig;
-    } catch (error) {
-        logger.error(`Failed to load cat reactions config from ${configPath}: ${error}`);
-        return {
-            cat_triggers: ['nya', 'meow', 'mew'],
-            cat_response_rate: 0.1,
-            cat_responses: {
-                curious: ['Nya? 🐱'],
-            },
-            komaru_emojis: ['😸'],
-            komaru_responses: ['Nya~!'],
-            komaru_gifs: [],
-            bingus_gifs: [],
-            bingus_responses: ['Bingus!'],
-            komaru_response_weights: {
-                emoji_react: 40,
-                text_response: 40,
-                gif_response: 20,
-            },
-            elaboration_chance: 0.1,
-            max_komaru_emojis: 3,
-        };
-    }
+    return config.catReactions;
 };
-
-const config = loadCatReactionsConfig();
 
 export const respondToCatNoise = async (message: any): Promise<void> => {
     try {
+        const catConfig = config.catReactions;
         logger.info(`Cat noise detected in message: ${message.content} by ${message.author}`);
 
-        if (Math.random() > config.cat_response_rate) {
+        if (Math.random() > catConfig.cat_response_rate) {
             return;
         }
 
-        const tonalities = Object.keys(config.cat_responses);
+        const tonalities = Object.keys(catConfig.cat_responses);
         const tonality = tonalities[Math.floor(Math.random() * tonalities.length)];
-        const responses = config.cat_responses[tonality] ?? [];
+        const responses = catConfig.cat_responses[tonality] ?? [];
 
         if (responses.length === 0) {
             return;
@@ -74,8 +48,9 @@ export const respondToCatNoise = async (message: any): Promise<void> => {
 
 export const respondToKomaruMention = async (message: any): Promise<void> => {
     try {
-        const actionTypes = Object.keys(config.komaru_response_weights);
-        const weights = actionTypes.map((type) => config.komaru_response_weights[type] ?? 0);
+        const catConfig = config.catReactions;
+        const actionTypes = Object.keys(catConfig.komaru_response_weights);
+        const weights = actionTypes.map((type) => catConfig.komaru_response_weights[type] ?? 0);
 
         const weightedActionType = (() => {
             const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
@@ -94,27 +69,27 @@ export const respondToKomaruMention = async (message: any): Promise<void> => {
         if (weightedActionType === 'emoji_react') {
             const maxEmojis = Math.max(
                 1,
-                Math.min(config.max_komaru_emojis, config.komaru_emojis.length),
+                Math.min(catConfig.max_komaru_emojis, catConfig.komaru_emojis.length),
             );
             const numEmojis = Math.floor(Math.random() * maxEmojis) + 1;
-            const chosenEmojis = [...config.komaru_emojis]
+            const chosenEmojis = [...catConfig.komaru_emojis]
                 .sort(() => Math.random() - 0.5)
-                .slice(0, Math.min(numEmojis, config.komaru_emojis.length));
+                .slice(0, Math.min(numEmojis, catConfig.komaru_emojis.length));
 
             for (const emoji of chosenEmojis) {
                 await message.react(emoji);
             }
         } else if (weightedActionType === 'text_response') {
             const response =
-                config.komaru_responses[Math.floor(Math.random() * config.komaru_responses.length)];
+                catConfig.komaru_responses[Math.floor(Math.random() * catConfig.komaru_responses.length)];
             await message.reply({ content: response, allowedMentions: { repliedUser: false } });
         } else if (weightedActionType === 'gif_response') {
-            if (config.komaru_gifs.length > 0) {
+            if (catConfig.komaru_gifs.length > 0) {
                 const gifUrl =
-                    config.komaru_gifs[Math.floor(Math.random() * config.komaru_gifs.length)];
+                    catConfig.komaru_gifs[Math.floor(Math.random() * catConfig.komaru_gifs.length)];
                 const responseText =
-                    config.komaru_responses[
-                        Math.floor(Math.random() * config.komaru_responses.length)
+                    catConfig.komaru_responses[
+                        Math.floor(Math.random() * catConfig.komaru_responses.length)
                     ];
                 const embed = new EmbedBuilder()
                     .setDescription(responseText)
@@ -130,7 +105,7 @@ export const respondToKomaruMention = async (message: any): Promise<void> => {
             }
 
             const response =
-                config.komaru_responses[Math.floor(Math.random() * config.komaru_responses.length)];
+                catConfig.komaru_responses[Math.floor(Math.random() * catConfig.komaru_responses.length)];
             await message.reply({ content: response, allowedMentions: { repliedUser: false } });
         }
     } catch (error) {
@@ -140,11 +115,12 @@ export const respondToKomaruMention = async (message: any): Promise<void> => {
 
 export const respondToBingusMention = async (message: any): Promise<void> => {
     try {
-        if (config.bingus_gifs.length > 0) {
+        const catConfig = config.catReactions;
+        if (catConfig.bingus_gifs.length > 0) {
             const gifUrl =
-                config.bingus_gifs[Math.floor(Math.random() * config.bingus_gifs.length)];
+                catConfig.bingus_gifs[Math.floor(Math.random() * catConfig.bingus_gifs.length)];
             const responseText =
-                config.bingus_responses[Math.floor(Math.random() * config.bingus_responses.length)];
+                catConfig.bingus_responses[Math.floor(Math.random() * catConfig.bingus_responses.length)];
             const embed = new EmbedBuilder()
                 .setDescription(responseText)
                 .setImage(gifUrl)
@@ -159,7 +135,7 @@ export const respondToBingusMention = async (message: any): Promise<void> => {
         }
 
         const response =
-            config.bingus_responses[Math.floor(Math.random() * config.bingus_responses.length)];
+            catConfig.bingus_responses[Math.floor(Math.random() * catConfig.bingus_responses.length)];
         await message.reply({ content: response, allowedMentions: { repliedUser: false } });
     } catch (error) {
         logger.error(`Error responding to Bingus mention: ${error}`);
@@ -168,6 +144,7 @@ export const respondToBingusMention = async (message: any): Promise<void> => {
 
 export const sendCatStats = async (message: any): Promise<void> => {
     try {
+        const catConfig = config.catReactions;
         const embed = new EmbedBuilder()
             .setTitle('🐱 Cat Response Statistics')
             .setDescription("Komaru's cat behavior patterns")
@@ -175,22 +152,22 @@ export const sendCatStats = async (message: any): Promise<void> => {
             .addFields(
                 {
                     name: 'Cat Triggers',
-                    value: `• Responds to: ${config.cat_triggers.join(', ')}\n• Response rate: ${Math.round(config.cat_response_rate * 100)}% (to avoid spam)`,
+                    value: `• Responds to: ${catConfig.cat_triggers.join(', ')}\n• Response rate: ${Math.round(catConfig.cat_response_rate * 100)}% (to avoid spam)`,
                     inline: false,
                 },
                 {
                     name: 'Tonalities Available',
-                    value: `• ${Object.keys(config.cat_responses).join(', ')}\n• Total responses: ${Object.values(config.cat_responses).reduce((total, entries) => total + entries.length, 0)}`,
+                    value: `• ${Object.keys(catConfig.cat_responses).join(', ')}\n• Total responses: ${Object.values(catConfig.cat_responses).reduce((total, entries: string[]) => total + entries.length, 0)}`,
                     inline: false,
                 },
                 {
                     name: 'Komaru Reactions',
-                    value: `• Emoji reactions: ${config.komaru_emojis.length} different emojis\n• Text responses: ${config.komaru_responses.length} variations\n• GIFs available: ${config.komaru_gifs.length}`,
+                    value: `• Emoji reactions: ${catConfig.komaru_emojis.length} different emojis\n• Text responses: ${catConfig.komaru_responses.length} variations\n• GIFs available: ${catConfig.komaru_gifs.length}`,
                     inline: false,
                 },
                 {
                     name: 'Bingus Responses',
-                    value: `• Response rate: 100% (bingus is life!)\n• Text responses: ${config.bingus_responses.length} variations\n• GIFs available: ${config.bingus_gifs.length}`,
+                    value: `• Response rate: 100% (bingus is life!)\n• Text responses: ${catConfig.bingus_responses.length} variations\n• GIFs available: ${catConfig.bingus_gifs.length}`,
                     inline: false,
                 },
             )
@@ -205,6 +182,7 @@ export const sendCatStats = async (message: any): Promise<void> => {
 export const handleCatReactionsMessage = async (message: any): Promise<void> => {
     if (!message || message.author?.bot) return;
 
+    const catConfig = config.catReactions;
     const content = String(message.content ?? '');
     const contentLower = content.toLowerCase();
 
@@ -228,7 +206,7 @@ export const handleCatReactionsMessage = async (message: any): Promise<void> => 
         return;
     }
 
-    for (const pattern of config.cat_triggers) {
+    for (const pattern of catConfig.cat_triggers) {
         if (new RegExp(pattern, 'i').test(contentLower)) {
             await respondToCatNoise(message);
             break;

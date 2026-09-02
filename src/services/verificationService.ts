@@ -9,11 +9,12 @@ import {
     TextInputStyle,
 } from 'discord.js';
 import { logger } from '../logger';
+import { config } from '../config';
 
-// Default configuration constants (can be overridden via process.env)
-export const verificationChannelsAllowed = ['screenshots', 'panoramas'];
-export const verificationChannelId = 'verification_channel';
-export const verifierRoleId = 'verifier_role';
+// Default configuration constants (can be overridden via process.env / config)
+export const verificationChannelsAllowed = config.env.verificationChannelsAllowed;
+export const verificationChannelId = config.env.verificationChannelId;
+export const verifierRoleId = config.env.verifierRoleId;
 export const stargateRoleIds = [
     { name: 'Legacy CSG', value: 'legacy_csg_role' },
     { name: 'ASG', value: 'asg_role' },
@@ -21,20 +22,13 @@ export const stargateRoleIds = [
 ];
 
 export function getConfiguredAllowedChannels(): string[] {
-    if (process.env.VERIFICATION_CHANNELS_ALLOWED) {
-        return process.env.VERIFICATION_CHANNELS_ALLOWED.split(',')
-            .map((c) => c.trim().toLowerCase())
-            .filter(Boolean);
-    }
-    return verificationChannelsAllowed.map((c) => c.toLowerCase());
+    return config.env.verificationChannelsAllowed;
 }
 
 export function isVerificationChannel(channel: any): boolean {
     if (!channel) return false;
     const allowedList = getConfiguredAllowedChannels();
-    const verifChannelId = (
-        process.env.VERIFICATION_CHANNEL_ID ?? verificationChannelId
-    ).toLowerCase();
+    const verifChannelId = config.env.verificationChannelId.toLowerCase();
 
     const channelId = channel.id?.toLowerCase();
     const channelName = channel.name?.toLowerCase();
@@ -70,8 +64,8 @@ export function isVerifier(member: any, _guild?: any): boolean {
         return true;
     }
 
-    const envRoleId = process.env.VERIFIER_ROLE_ID ?? verifierRoleId;
-    const envRoleName = (process.env.VERIFIER_ROLE_NAME ?? 'verifier').toLowerCase();
+    const envRoleId = config.env.verifierRoleId;
+    const envRoleName = config.env.verifierRoleName.toLowerCase();
 
     if (!member.roles?.cache) return true;
 
@@ -93,9 +87,9 @@ export function resolveStargateRole(guild: any, roleValue: string): any {
     if (!guild?.roles?.cache) return null;
 
     const envMap: Record<string, string | undefined> = {
-        legacy_csg_role: process.env.LEGACY_CSG_ROLE_ID,
-        asg_role: process.env.ASG_ROLE_ID,
-        dsg_role: process.env.DSG_ROLE_ID,
+        legacy_csg_role: config.env.legacyCsgRoleId,
+        asg_role: config.env.asgRoleId,
+        dsg_role: config.env.dsgRoleId,
     };
 
     const envRoleId = envMap[roleValue];
@@ -224,7 +218,7 @@ export async function handleVerificationForm(interaction: ModalSubmitInteraction
             .setFooter({ text: `User ID: ${interaction.user.id}` })
             .setTimestamp();
 
-        const verifierRoleIdConfig = process.env.VERIFIER_ROLE_ID ?? verifierRoleId;
+        const verifierRoleIdConfig = config.env.verifierRoleId;
         const verifierPing = verifierRoleIdConfig ? `<@&${verifierRoleIdConfig}>` : 'verifiers';
 
         await interaction.reply({
@@ -232,7 +226,7 @@ export async function handleVerificationForm(interaction: ModalSubmitInteraction
             embeds: [embed],
         });
 
-        const targetChannelId = process.env.VERIFICATION_CHANNEL_ID ?? verificationChannelId;
+        const targetChannelId = config.env.verificationChannelId;
         if (
             interaction.guild &&
             targetChannelId &&

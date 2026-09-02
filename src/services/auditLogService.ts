@@ -1,4 +1,5 @@
 import { logger } from '../logger';
+import { config } from '../config';
 
 export const auditChannelByGuild = new Map<string, string>();
 export const duplicateMessageWindow = new Map<
@@ -14,11 +15,11 @@ export const duplicateMessageWindow = new Map<
 >();
 export const pendingGhostPings = new Map<string, any>();
 
-export const DEFAULT_MODERATOR_ROLE_NAME = 'Moderator';
-export const DEFAULT_ADMIN_ROLE_NAME = 'Administrator';
-export const MAX_TIMEOUT_MS = 1000 * 60 * 60 * 24 * 28;
-export const DUPLICATE_SPAM_WINDOW_MS = 1000 * 10;
-export const GHOST_PING_WINDOW_MS = 1000 * 10;
+export const DEFAULT_MODERATOR_ROLE_NAME = config.auditLog.defaultModeratorRoleName;
+export const DEFAULT_ADMIN_ROLE_NAME = config.auditLog.defaultAdminRoleName;
+export const MAX_TIMEOUT_MS = config.auditLog.maxTimeoutMs;
+export const DUPLICATE_SPAM_WINDOW_MS = config.auditLog.duplicateSpamWindowMs;
+export const GHOST_PING_WINDOW_MS = config.auditLog.ghostPingWindowMs;
 
 export function normalizeRoleName(value?: string): string | undefined {
     const trimmed = value?.trim();
@@ -31,13 +32,13 @@ export function normalizeRoleName(value?: string): string | undefined {
 export function getConfiguredRoleNames(): { moderator?: string; admin?: string } {
     return {
         moderator: normalizeRoleName(
-            process.env.MODERATION_MODERATOR_ROLE_ID ??
-                process.env.MODERATION_MODERATOR_ROLE_NAME ??
+            config.env.moderationModeratorRoleId ??
+                config.env.moderationModeratorRoleName ??
                 DEFAULT_MODERATOR_ROLE_NAME,
         ),
         admin: normalizeRoleName(
-            process.env.MODERATION_ADMIN_ROLE_ID ??
-                process.env.MODERATION_ADMIN_ROLE_NAME ??
+            config.env.moderationAdminRoleId ??
+                config.env.moderationAdminRoleName ??
                 DEFAULT_ADMIN_ROLE_NAME,
         ),
     };
@@ -70,7 +71,7 @@ export function getAuditChannel(guild: any): any | null {
     }
 
     const configuredChannelId =
-        auditChannelByGuild.get(guild.id) || process.env.MODERATION_AUDIT_CHANNEL_ID;
+        auditChannelByGuild.get(guild.id) || config.env.moderationAuditChannelId;
     if (!configuredChannelId) {
         return null;
     }

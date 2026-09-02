@@ -9,7 +9,12 @@
 
 ## Scripts
 
+- `./run.sh` - build and start the bot in production mode
+- `./run.sh --dev` - start the bot in development mode
+- `./run.sh --loop` - auto-restart the bot on crash
+- `./run.sh --build` - compile the TypeScript project
 - `npm run dev` - start the bot in development mode
 - `npm run build` - compile the TypeScript project
 - `npm run lint` - run ESLint
 - `npm run format` - format files with Prettier
+
