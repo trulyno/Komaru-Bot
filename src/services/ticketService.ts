@@ -20,6 +20,7 @@ export interface TicketData {
     id: string;
     guildId: string;
     channelId: string;
+    categoryId?: string;
     creatorId: string;
     creatorTag: string;
     subject: string;
@@ -77,7 +78,12 @@ export function saveTickets(store: TicketStore, dataDir = DEFAULT_DATA_DIR): voi
 }
 
 export function catifyText(text: string): string {
-    if (text.includes('meow') || text.includes('purr') || text.includes('🐾') || text.includes('🐱')) {
+    if (
+        text.includes('meow') ||
+        text.includes('purr') ||
+        text.includes('🐾') ||
+        text.includes('🐱')
+    ) {
         return text;
     }
     return `Meow! 🐾 ${text} Purr!`;
@@ -124,9 +130,20 @@ export function buildTicketEmbed(ticket: TicketData): EmbedBuilder {
         .setDescription(ticket.description)
         .setColor(isArchived ? Colors.Grey : isDeleted ? Colors.Red : Colors.Gold)
         .addFields(
-            { name: '👤 Creator', value: `<@${ticket.creatorId}> (${ticket.creatorTag})`, inline: true },
+            {
+                name: '👤 Creator',
+                value: `<@${ticket.creatorId}> (${ticket.creatorTag})`,
+                inline: true,
+            },
             { name: '📌 Status', value: statusString, inline: true },
-            { name: '🕒 Created At', value: `<t:${Math.floor(ticket.createdAt / 1000)}:F>`, inline: false },
+            ...(ticket.categoryId
+                ? [{ name: '📁 Category', value: `<#${ticket.categoryId}>`, inline: true }]
+                : []),
+            {
+                name: '🕒 Created At',
+                value: `<t:${Math.floor(ticket.createdAt / 1000)}:F>`,
+                inline: false,
+            },
         )
         .setFooter({ text: 'Komaru Support System 🐾 | Purr-fect assistance' })
         .setTimestamp();
@@ -157,13 +174,23 @@ export function getStaffRoles(guild: any): any[] {
 
     return guild.roles.cache.filter((role: any) => {
         const nameLower = role.name.toLowerCase();
-        if (config.moderator && (role.id === config.moderator || nameLower === config.moderator.toLowerCase())) {
+        if (
+            config.moderator &&
+            (role.id === config.moderator || nameLower === config.moderator.toLowerCase())
+        ) {
             return true;
         }
-        if (config.admin && (role.id === config.admin || nameLower === config.admin.toLowerCase())) {
+        if (
+            config.admin &&
+            (role.id === config.admin || nameLower === config.admin.toLowerCase())
+        ) {
             return true;
         }
-        if (nameLower.includes('moderator') || nameLower.includes('mod') || nameLower.includes('admin')) {
+        if (
+            nameLower.includes('moderator') ||
+            nameLower.includes('mod') ||
+            nameLower.includes('admin')
+        ) {
             return true;
         }
         if (role.permissions?.has?.(PermissionFlagsBits.Administrator)) {
@@ -177,7 +204,11 @@ export function calculateOpenTicketPermissions(guild: any, creatorId: string): a
     const overwrites: any[] = [
         {
             id: guild.roles.everyone.id,
-            deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+            deny: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory,
+            ],
         },
         {
             id: creatorId,
@@ -223,6 +254,143 @@ export function calculateOpenTicketPermissions(guild: any, creatorId: string): a
     return overwrites;
 }
 
+export const ticketCategoryByGuild = new Map<string, string>();
+
+export function setTicketCategoryForGuild(guildId: string, categoryId: string): void {
+    ticketCategoryByGuild.set(guildId, categoryId);
+}
+
+export function getTicketCategoryForGuild(guildId: string): string | undefined {
+    return ticketCategoryByGuild.get(guildId) || config.env.ticketCategoryId;
+}
+
+export async function getOrCreateTicketCategory(
+    guild: any,
+    options?: { categoryId?: string; categoryName?: string },
+): Promise<any | null> {
+    if (!guild) return null;
+
+    const configuredCategoryId =
+        options?.categoryId || ticketCategoryByGuild.get(guild.id) || config.env.ticketCategoryId;
+
+    // 1. Try to fetch by ID if configured
+    if (configuredCategoryId) {
+        let category = guild.channels?.cache?.get
+            ? guild.channels.cache.get(configuredCategoryId)
+            : undefined;
+        if (!category && guild.channels?.fetch) {
+            category = await guild.channels.fetch(configuredCategoryId).catch(() => null);
+        }
+        if (category && (category.type === ChannelType.GuildCategory || category.type === 4)) {
+            return category;
+        }
+    }
+
+    // 2. Try to find existing category by name
+    const targetName = options?.categoryName || config.env.ticketCategoryName || 'Tickets';
+    const targetNameLower = targetName.toLowerCase();
+    const isMatchingCategory = (c: any) =>
+        (c.type === ChannelType.GuildCategory || c.type === 4) &&
+        c.name?.toLowerCase() === targetNameLower;
+
+    let existingCategory: any = null;
+
+    if (guild.channels?.cache) {
+        if (typeof guild.channels.cache.find === 'function') {
+            existingCategory = guild.channels.cache.find(isMatchingCategory);
+        } else if (Array.isArray(guild.channels.cache)) {
+            existingCategory = guild.channels.cache.find(isMatchingCategory);
+        } else if (typeof guild.channels.cache.values === 'function') {
+            for (const c of guild.channels.cache.values()) {
+                if (isMatchingCategory(c)) {
+                    existingCategory = c;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!existingCategory && typeof guild.channels?.fetch === 'function') {
+        try {
+            const fetched = await guild.channels.fetch().catch(() => null);
+            if (fetched) {
+                if (typeof fetched.find === 'function') {
+                    existingCategory = fetched.find(isMatchingCategory);
+                } else if (Array.isArray(fetched)) {
+                    existingCategory = fetched.find(isMatchingCategory);
+                } else if (typeof fetched.values === 'function') {
+                    for (const c of fetched.values()) {
+                        if (isMatchingCategory(c)) {
+                            existingCategory = c;
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            logger.warn(
+                `Failed to fetch guild channels while searching for ticket category: ${err}`,
+            );
+        }
+    }
+
+    if (existingCategory) {
+        return existingCategory;
+    }
+
+    // 3. Try to auto-create category
+    if (!guild.channels?.create) return null;
+    try {
+        const staffRoles = getStaffRoles(guild);
+        const categoryOverwrites: any[] = [];
+
+        if (guild.roles?.everyone?.id) {
+            categoryOverwrites.push({
+                id: guild.roles.everyone.id,
+                deny: [PermissionFlagsBits.ViewChannel],
+            });
+        }
+
+        staffRoles.forEach((role: any) => {
+            categoryOverwrites.push({
+                id: role.id,
+                allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.ReadMessageHistory,
+                    PermissionFlagsBits.ManageChannels,
+                    PermissionFlagsBits.ManageMessages,
+                ],
+            });
+        });
+
+        if (guild.members?.me?.id) {
+            categoryOverwrites.push({
+                id: guild.members.me.id,
+                allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.ReadMessageHistory,
+                    PermissionFlagsBits.ManageChannels,
+                    PermissionFlagsBits.ManageMessages,
+                ],
+            });
+        }
+
+        const newCategory = await guild.channels.create({
+            name: targetName,
+            type: ChannelType.GuildCategory,
+            permissionOverwrites: categoryOverwrites,
+        });
+
+        logger.info(`Auto-created dedicated ticket category: "${targetName}" (${newCategory.id})`);
+        return newCategory;
+    } catch (error) {
+        logger.warn(`Unable to auto-create ticket category "${targetName}": ${error}`);
+        return null;
+    }
+}
+
 export async function createTicket(
     guild: any,
     creator: { id: string; tag: string; user?: any },
@@ -243,18 +411,27 @@ export async function createTicket(
 
     const permissionOverwrites = calculateOpenTicketPermissions(guild, creator.id);
 
-    const channel = await guild.channels.create({
+    const category = await getOrCreateTicketCategory(guild);
+
+    const channelCreateOptions: any = {
         name: channelName,
         type: ChannelType.GuildText,
         permissionOverwrites,
         topic: `Support ticket #${ticketId} created by ${creator.tag} meow. Subject: ${cleanSubject}`,
-    });
+    };
+
+    if (category?.id) {
+        channelCreateOptions.parent = category.id;
+    }
+
+    const channel = await guild.channels.create(channelCreateOptions);
 
     const now = Date.now();
     const ticket: TicketData = {
         id: ticketId,
         guildId: guild.id,
         channelId: channel.id,
+        categoryId: category?.id,
         creatorId: creator.id,
         creatorTag: creator.tag,
         subject: cleanSubject,
@@ -276,17 +453,16 @@ export async function createTicket(
         components: [actionRow],
     });
 
-    await sendAuditLog(
-        guild,
-        '🐾 Ticket Created',
-        `A new support ticket has been opened meow!`,
-        [
-            { name: 'Ticket ID', value: `#${ticketId}` },
-            { name: 'Creator', value: `<@${creator.id}> (${creator.tag})` },
-            { name: 'Channel', value: `<#${channel.id}>` },
-            { name: 'Subject', value: cleanSubject },
-        ],
-    );
+    await sendAuditLog(guild, '🐾 Ticket Created', `A new support ticket has been opened meow!`, [
+        { name: 'Ticket ID', value: `#${ticketId}` },
+        { name: 'Creator', value: `<@${creator.id}> (${creator.tag})` },
+        { name: 'Channel', value: `<#${channel.id}>` },
+        {
+            name: 'Category',
+            value: category ? `${category.name ?? 'Tickets'} (${category.id})` : 'None',
+        },
+        { name: 'Subject', value: cleanSubject },
+    ]);
 
     return { ticket, channel };
 }
@@ -308,7 +484,9 @@ export async function archiveTicket(
     ticket.archivedBy = actor.id;
     saveTickets(store, dataDir);
 
-    const channel = guild.channels.cache.get(ticket.channelId) ?? (await guild.channels.fetch(ticket.channelId).catch(() => null));
+    const channel =
+        guild.channels.cache.get(ticket.channelId) ??
+        (await guild.channels.fetch(ticket.channelId).catch(() => null));
     if (channel) {
         try {
             await channel.permissionOverwrites.edit(ticket.creatorId, {
@@ -332,17 +510,12 @@ export async function archiveTicket(
         }
     }
 
-    await sendAuditLog(
-        guild,
-        '📦 Ticket Archived',
-        `Ticket #${ticketId} has been archived meow.`,
-        [
-            { name: 'Ticket ID', value: `#${ticketId}` },
-            { name: 'Archived By', value: `<@${actor.id}> (${actor.tag})` },
-            { name: 'Creator', value: `<@${ticket.creatorId}>` },
-            { name: 'Channel', value: channel ? `<#${channel.id}>` : ticket.channelId },
-        ],
-    );
+    await sendAuditLog(guild, '📦 Ticket Archived', `Ticket #${ticketId} has been archived meow.`, [
+        { name: 'Ticket ID', value: `#${ticketId}` },
+        { name: 'Archived By', value: `<@${actor.id}> (${actor.tag})` },
+        { name: 'Creator', value: `<@${ticket.creatorId}>` },
+        { name: 'Channel', value: channel ? `<#${channel.id}>` : ticket.channelId },
+    ]);
 
     return ticket;
 }
@@ -364,19 +537,16 @@ export async function deleteTicket(
     ticket.deletedBy = actor.id;
     saveTickets(store, dataDir);
 
-    const channel = guild.channels.cache.get(ticket.channelId) ?? (await guild.channels.fetch(ticket.channelId).catch(() => null));
+    const channel =
+        guild.channels.cache.get(ticket.channelId) ??
+        (await guild.channels.fetch(ticket.channelId).catch(() => null));
 
-    await sendAuditLog(
-        guild,
-        '🗑️ Ticket Deleted',
-        `Ticket #${ticketId} has been deleted meow!`,
-        [
-            { name: 'Ticket ID', value: `#${ticketId}` },
-            { name: 'Deleted By', value: `<@${actor.id}> (${actor.tag})` },
-            { name: 'Creator', value: `<@${ticket.creatorId}>` },
-            { name: 'Subject', value: ticket.subject },
-        ],
-    );
+    await sendAuditLog(guild, '🗑️ Ticket Deleted', `Ticket #${ticketId} has been deleted meow!`, [
+        { name: 'Ticket ID', value: `#${ticketId}` },
+        { name: 'Deleted By', value: `<@${actor.id}> (${actor.tag})` },
+        { name: 'Creator', value: `<@${ticket.creatorId}>` },
+        { name: 'Subject', value: ticket.subject },
+    ]);
 
     if (channel) {
         try {
@@ -384,7 +554,9 @@ export async function deleteTicket(
                 content: `🗑️ **Ticket deleting in 5 seconds meow...** Purr-bye!`,
             });
             setTimeout(async () => {
-                await channel.delete('Ticket deleted').catch((err: any) => logger.warn(`Failed to delete channel: ${err}`));
+                await channel
+                    .delete('Ticket deleted')
+                    .catch((err: any) => logger.warn(`Failed to delete channel: ${err}`));
             }, 5000);
         } catch (error) {
             logger.error(`Error deleting channel for ticket ${ticketId}: ${error}`);
@@ -421,14 +593,20 @@ export async function checkInactivityReminders(
         if (ticket.status !== 'open') continue;
 
         const timeSinceActivity = now - ticket.lastActivityAt;
-        const timeSinceLastReminder = ticket.lastReminderAt ? now - ticket.lastReminderAt : Infinity;
+        const timeSinceLastReminder = ticket.lastReminderAt
+            ? now - ticket.lastReminderAt
+            : Infinity;
 
         if (timeSinceActivity >= inactivityMs && timeSinceLastReminder >= inactivityMs) {
             try {
-                const guild = client.guilds.cache.get(ticket.guildId) ?? (await client.guilds.fetch(ticket.guildId).catch(() => null));
+                const guild =
+                    client.guilds.cache.get(ticket.guildId) ??
+                    (await client.guilds.fetch(ticket.guildId).catch(() => null));
                 if (!guild) continue;
 
-                const channel = guild.channels.cache.get(ticket.channelId) ?? (await guild.channels.fetch(ticket.channelId).catch(() => null));
+                const channel =
+                    guild.channels.cache.get(ticket.channelId) ??
+                    (await guild.channels.fetch(ticket.channelId).catch(() => null));
                 if (!channel) continue;
 
                 await channel.send({
@@ -445,7 +623,10 @@ export async function checkInactivityReminders(
                     [
                         { name: 'Ticket ID', value: `#${ticket.id}` },
                         { name: 'Channel', value: `<#${channel.id}>` },
-                        { name: 'Inactive Duration', value: `${Math.round(timeSinceActivity / (1000 * 60 * 60))} hours` },
+                        {
+                            name: 'Inactive Duration',
+                            value: `${Math.round(timeSinceActivity / (1000 * 60 * 60))} hours`,
+                        },
                     ],
                 );
             } catch (error) {

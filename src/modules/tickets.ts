@@ -1,3 +1,4 @@
+import { ChannelType } from 'discord.js';
 import { commandRegistry } from '../commandRegistry';
 import { logger } from '../logger';
 import {
@@ -7,15 +8,17 @@ import {
     createTicket,
     deleteTicket,
     loadTickets,
+    setTicketCategoryForGuild,
     updateTicketActivity,
 } from '../services/ticketService';
-import { canModerate } from '../services/auditLogService';
+import { canModerate, sendAuditLog } from '../services/auditLogService';
 
 let reminderIntervalTimer: NodeJS.Timeout | null = null;
 
 const moduleDefinition = {
     name: 'tickets',
-    description: 'Cat-ified support ticket system with form submission, channel access controls, and activity reminders',
+    description:
+        'Cat-ified support ticket system with form submission, channel access controls, and activity reminders',
     register: async (client: any) => {
         commandRegistry.register({
             name: 'ticket',
@@ -23,7 +26,8 @@ const moduleDefinition = {
             options: [
                 {
                     name: 'action',
-                    description: 'Optional action: archive, delete, or status (leave blank to open ticket form)',
+                    description:
+                        'Optional action: archive, delete, or status (leave blank to open ticket form)',
                     type: 3, // STRING
                     required: false,
                     choices: [
@@ -53,7 +57,9 @@ const moduleDefinition = {
 
                 const channelId = interaction.channelId;
                 const store = loadTickets();
-                const ticket = store.tickets.find((t) => t.channelId === channelId && t.status !== 'deleted');
+                const ticket = store.tickets.find(
+                    (t) => t.channelId === channelId && t.status !== 'deleted',
+                );
 
                 if (action === 'status') {
                     if (!ticket) {
@@ -63,8 +69,11 @@ const moduleDefinition = {
                         });
                         return;
                     }
+                    const categoryText = ticket.categoryId
+                        ? `\nCategory: <#${ticket.categoryId}>`
+                        : '';
                     await interaction.reply({
-                        content: `🐾 **Ticket #${ticket.id} Status**: ${ticket.status.toUpperCase()} meow!\nSubject: ${ticket.subject}\nCreator: <@${ticket.creatorId}>`,
+                        content: `🐾 **Ticket #${ticket.id} Status**: ${ticket.status.toUpperCase()} meow!\nSubject: ${ticket.subject}\nCreator: <@${ticket.creatorId}>${categoryText}`,
                         ephemeral: true,
                     });
                     return;
@@ -72,7 +81,8 @@ const moduleDefinition = {
 
                 if (!ticket) {
                     await interaction.reply({
-                        content: 'Meow! 🐾 This command action can only be run inside a ticket channel purr.',
+                        content:
+                            'Meow! 🐾 This command action can only be run inside a ticket channel purr.',
                         ephemeral: true,
                     });
                     return;
@@ -83,7 +93,8 @@ const moduleDefinition = {
 
                 if (!isCreator && !isStaff) {
                     await interaction.reply({
-                        content: 'Meow! 🐾 Only the ticket creator or staff members can manage this ticket purr!',
+                        content:
+                            'Meow! 🐾 Only the ticket creator or staff members can manage this ticket purr!',
                         ephemeral: true,
                     });
                     return;
@@ -91,21 +102,88 @@ const moduleDefinition = {
 
                 if (action === 'archive') {
                     await interaction.deferReply({ ephemeral: true });
-                    const archived = await archiveTicket(interaction.guild, ticket.id, interaction.user);
+                    const archived = await archiveTicket(
+                        interaction.guild,
+                        ticket.id,
+                        interaction.user,
+                    );
                     if (archived) {
-                        await interaction.editReply('📦 Ticket archived purr-fectly! User access has been revoked meow.');
+                        await interaction.editReply(
+                            '📦 Ticket archived purr-fectly! User access has been revoked meow.',
+                        );
                     } else {
-                        await interaction.editReply('Meow! 🐾 Unable to archive ticket (it may already be archived or deleted).');
+                        await interaction.editReply(
+                            'Meow! 🐾 Unable to archive ticket (it may already be archived or deleted).',
+                        );
                     }
                 } else if (action === 'delete') {
                     await interaction.deferReply({ ephemeral: true });
-                    const deleted = await deleteTicket(interaction.guild, ticket.id, interaction.user);
+                    const deleted = await deleteTicket(
+                        interaction.guild,
+                        ticket.id,
+                        interaction.user,
+                    );
                     if (deleted) {
-                        await interaction.editReply('🗑️ Ticket marked for deletion meow! Channel will close shortly.');
+                        await interaction.editReply(
+                            '🗑️ Ticket marked for deletion meow! Channel will close shortly.',
+                        );
                     } else {
                         await interaction.editReply('Meow! 🐾 Unable to delete ticket.');
                     }
                 }
+            },
+        });
+
+        commandRegistry.register({
+            name: 'set_ticket_category',
+            description: 'Set the dedicated category channel for support tickets meow',
+            options: [
+                {
+                    name: 'category',
+                    description: 'Category where tickets will be created',
+                    type: 7, // CHANNEL
+                    channel_types: [ChannelType.GuildCategory],
+                    required: true,
+                },
+            ],
+            handler: async (interaction: any) => {
+                if (!interaction.guild || !canModerate(interaction.member)) {
+                    await interaction.reply({
+                        content:
+                            'Meow! 🐾 You do not have permission to configure ticket settings.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const category = interaction.options.getChannel('category');
+                if (
+                    !category ||
+                    (category.type !== ChannelType.GuildCategory && category.type !== 4)
+                ) {
+                    await interaction.reply({
+                        content: 'Meow! 🐾 Please select a valid category channel purr.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                setTicketCategoryForGuild(interaction.guild.id, category.id);
+
+                await sendAuditLog(
+                    interaction.guild,
+                    '🐾 Ticket Category Updated',
+                    `The dedicated ticket category has been set to **${category.name}** meow.`,
+                    [
+                        { name: 'Category', value: `${category.name} (${category.id})` },
+                        { name: 'Configured By', value: `<@${interaction.user.id}>` },
+                    ],
+                );
+
+                await interaction.reply({
+                    content: `Meow! 🐾 Support tickets will now be created in the **${category.name}** category purr!`,
+                    ephemeral: true,
+                });
             },
         });
 
@@ -116,7 +194,8 @@ const moduleDefinition = {
                     if (interaction.customId === 'ticket_modal') {
                         if (!interaction.guild) {
                             await interaction.reply({
-                                content: 'Meow! 🐾 Tickets can only be created inside a server purr!',
+                                content:
+                                    'Meow! 🐾 Tickets can only be created inside a server purr!',
                                 ephemeral: true,
                             });
                             return;
@@ -125,11 +204,16 @@ const moduleDefinition = {
                         await interaction.deferReply({ ephemeral: true });
 
                         const subject = interaction.fields.getTextInputValue('ticket_subject');
-                        const description = interaction.fields.getTextInputValue('ticket_description');
+                        const description =
+                            interaction.fields.getTextInputValue('ticket_description');
 
                         const { ticket, channel } = await createTicket(
                             interaction.guild,
-                            { id: interaction.user.id, tag: interaction.user.tag ?? interaction.user.username, user: interaction.user },
+                            {
+                                id: interaction.user.id,
+                                tag: interaction.user.tag ?? interaction.user.username,
+                                user: interaction.user,
+                            },
                             subject,
                             description,
                         );
@@ -147,7 +231,10 @@ const moduleDefinition = {
                         const ticket = store.tickets.find((t) => t.id === ticketId);
 
                         if (!ticket) {
-                            await interaction.reply({ content: 'Meow! 🐾 Ticket not found purr.', ephemeral: true });
+                            await interaction.reply({
+                                content: 'Meow! 🐾 Ticket not found purr.',
+                                ephemeral: true,
+                            });
                             return;
                         }
 
@@ -156,18 +243,27 @@ const moduleDefinition = {
 
                         if (!isCreator && !isStaff) {
                             await interaction.reply({
-                                content: 'Meow! 🐾 Only the ticket creator or staff members can archive this ticket purr!',
+                                content:
+                                    'Meow! 🐾 Only the ticket creator or staff members can archive this ticket purr!',
                                 ephemeral: true,
                             });
                             return;
                         }
 
                         await interaction.deferReply({ ephemeral: true });
-                        const archived = await archiveTicket(interaction.guild, ticketId, interaction.user);
+                        const archived = await archiveTicket(
+                            interaction.guild,
+                            ticketId,
+                            interaction.user,
+                        );
                         if (archived) {
-                            await interaction.editReply('📦 Ticket archived purr-fectly! Access for the creator has been revoked meow.');
+                            await interaction.editReply(
+                                '📦 Ticket archived purr-fectly! Access for the creator has been revoked meow.',
+                            );
                         } else {
-                            await interaction.editReply('Meow! 🐾 Unable to archive ticket (it might already be archived or deleted).');
+                            await interaction.editReply(
+                                'Meow! 🐾 Unable to archive ticket (it might already be archived or deleted).',
+                            );
                         }
                     } else if (customId.startsWith('ticket_delete_')) {
                         const ticketId = customId.replace('ticket_delete_', '');
@@ -175,7 +271,10 @@ const moduleDefinition = {
                         const ticket = store.tickets.find((t) => t.id === ticketId);
 
                         if (!ticket) {
-                            await interaction.reply({ content: 'Meow! 🐾 Ticket not found purr.', ephemeral: true });
+                            await interaction.reply({
+                                content: 'Meow! 🐾 Ticket not found purr.',
+                                ephemeral: true,
+                            });
                             return;
                         }
 
@@ -184,14 +283,19 @@ const moduleDefinition = {
 
                         if (!isCreator && !isStaff) {
                             await interaction.reply({
-                                content: 'Meow! 🐾 Only the ticket creator or staff members can delete this ticket purr!',
+                                content:
+                                    'Meow! 🐾 Only the ticket creator or staff members can delete this ticket purr!',
                                 ephemeral: true,
                             });
                             return;
                         }
 
                         await interaction.deferReply({ ephemeral: true });
-                        const deleted = await deleteTicket(interaction.guild, ticketId, interaction.user);
+                        const deleted = await deleteTicket(
+                            interaction.guild,
+                            ticketId,
+                            interaction.user,
+                        );
                         if (deleted) {
                             await interaction.editReply('🗑️ Ticket scheduled for deletion meow!');
                         } else {
@@ -218,13 +322,16 @@ const moduleDefinition = {
         if (reminderIntervalTimer) {
             clearInterval(reminderIntervalTimer);
         }
-        reminderIntervalTimer = setInterval(async () => {
-            try {
-                await checkInactivityReminders(client);
-            } catch (error) {
-                logger.error(`Error in ticket inactivity check loop: ${error}`);
-            }
-        }, 15 * 60 * 1000);
+        reminderIntervalTimer = setInterval(
+            async () => {
+                try {
+                    await checkInactivityReminders(client);
+                } catch (error) {
+                    logger.error(`Error in ticket inactivity check loop: ${error}`);
+                }
+            },
+            15 * 60 * 1000,
+        );
     },
 };
 

@@ -29,17 +29,25 @@ export interface EnvConfig {
 
     // Ticket System
     ticketInactivityHours: number;
+    ticketCategoryId?: string;
+    ticketCategoryName: string;
 }
 
 export function loadEnvConfig(): EnvConfig {
     const rawAllowed = process.env.VERIFICATION_CHANNELS_ALLOWED;
     const allowedChannels = rawAllowed
-        ? rawAllowed.split(',').map((c) => c.trim().toLowerCase()).filter(Boolean)
+        ? rawAllowed
+              .split(',')
+              .map((c) => c.trim().toLowerCase())
+              .filter(Boolean)
         : ['screenshots', 'panoramas'];
 
     const rawInvalidTags = process.env.TEMPLATE_INVALID_TAGS;
     const invalidTags = rawInvalidTags
-        ? rawInvalidTags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
+        ? rawInvalidTags
+              .split(',')
+              .map((t) => t.trim().toLowerCase())
+              .filter(Boolean)
         : ['invalid', 'needs template', 'template missing'];
 
     const rawTicketInactivity = process.env.TICKET_INACTIVITY_HOURS;
@@ -70,5 +78,7 @@ export function loadEnvConfig(): EnvConfig {
         templateInvalidTags: invalidTags,
 
         ticketInactivityHours,
+        ticketCategoryId: process.env.TICKET_CATEGORY_ID || undefined,
+        ticketCategoryName: process.env.TICKET_CATEGORY_NAME || 'Tickets',
     };
 }
