@@ -60,6 +60,7 @@ export interface PassTheTunaState {
 
 export interface PassTheTunaActionContext {
     userId: string;
+    userName?: string;
     action: 'pass' | 'take';
     now: number;
 }
@@ -311,7 +312,7 @@ function pickEvent(config: PassTheTunaConfig): PassTheTunaEventConfig | undefine
             return event;
         }
     }
-    return visibleEvents[visibleEvents.length - 1];
+    return undefined;
 }
 
 function selectEvent(config: PassTheTunaConfig): PassTheTunaEventConfig | undefined {
@@ -328,7 +329,7 @@ function selectEvent(config: PassTheTunaConfig): PassTheTunaEventConfig | undefi
             return event;
         }
     }
-    return events[events.length - 1];
+    return undefined;
 }
 
 function buildLeaderboardSummary(leaderboard: Record<string, PassTheTunaUserStats>): string {
@@ -432,13 +433,16 @@ export function createPassTheTunaEngine(dataDir?: string) {
                     score: 0,
                     penaltyApplied: false,
                     chainEnded: false,
-                    message: 'The same user cannot take two actions in a row. Please wait for another player.',
+                    message:
+                        'The same user cannot take two actions in a row. Please wait for another player.',
                 };
             }
 
             const penalty = maybeApplyIdlePenalty(chain, config, now);
             const multiplier = penalty.penaltyApplied ? config.idlePenaltyMultiplier : 1;
             const userStats = ensureUserStats(state.leaderboard, args.userId);
+
+            const userDisplay = args.userName ? `**${args.userName}**` : `<@${args.userId}>`;
 
             if (args.action === 'pass') {
                 const nextChainLength = chain.chainLength + 1;
@@ -460,12 +464,19 @@ export function createPassTheTunaEngine(dataDir?: string) {
                         chain.deliciousThreshold - config.announcementTurnsBeforeDelicious
                 ) {
                     chain.deliciousAnnouncementTriggered = true;
-                    announcementMessage = `The tuna is starting to smell delicious. Only a couple more passes and the take will be worth scoring.`;
+                    announcementMessage = '🤤 *The tuna smells delicious!*';
                 }
 
-                const message = penalty.penaltyApplied
-                    ? `The tuna sat untouched for too long, so the next pass was penalized. ${score} points awarded.`
-                    : `${announcementMessage ? `${announcementMessage} ` : ''}${score} points for passing the tuna. Chain length is now ${nextChainLength}.`;
+                const penaltyText = penalty.penaltyApplied ? ' (⚠️ *Idle penalty*)' : '';
+                const parts = [
+                    `🐟 ${userDisplay} passed the tuna!`,
+                    `⛓️ Chain: **${nextChainLength}**`,
+                    `⭐ **+${score} pts**${penaltyText}`,
+                ];
+                if (announcementMessage) {
+                    parts.push(announcementMessage);
+                }
+                const message = parts.join(' | ');
 
                 savePassTheTunaState({ ...state, currentChain: chain }, resolvedDataDir);
                 return {
@@ -483,29 +494,42 @@ export function createPassTheTunaEngine(dataDir?: string) {
             const takeChainLength = chain.chainLength;
             let score = 0;
             let event: PassTheTunaEventConfig | undefined;
-            let eventMessage = '';
             let effectiveAction: 'pass' | 'take' = 'take';
 
             event = selectEvent(config);
-            if (event && (event.type === 'frozen' || event.type === 'rotten')) {
-                effectiveAction = event.type === 'frozen' ? 'pass' : 'take';
+            const isDelicious = takeChainLength >= chain.deliciousThreshold;
+
+            let actionText = `🍣 ${userDisplay} took the tuna!`;
+            let eventTag = '';
+
+            if (event && event.type === 'frozen') {
+                effectiveAction = 'pass';
                 score = 0;
-                eventMessage = `${event.name}: ${event.description}`;
-            } else if (takeChainLength >= chain.deliciousThreshold) {
+                actionText = `❄️ ${userDisplay} tried to take, but the tuna was frozen! Converted to pass.`;
+                eventTag = `🧊 **Event: ${event.name}** (${event.description})`;
+            } else if (event && event.type === 'rotten') {
+                effectiveAction = 'take';
+                score = 0;
+                actionText = `🪰 ${userDisplay} took the tuna, but it was rotten!`;
+                eventTag = `🤢 **Event: ${event.name}** (${event.description})`;
+            } else if (isDelicious) {
                 if (event && event.type === 'score_boost') {
                     score = Math.round(
                         config.takeBaseScore * takeChainLength * (event.multiplier ?? 1),
                     );
-                    eventMessage = `${event.name}: ${event.description}`;
+                    eventTag = `🎉 **Event: ${event.name}** (${event.description})`;
                 } else if (event && event.type === 'chain_bonus') {
                     score = Math.round(config.takeBaseScore * takeChainLength);
-                    eventMessage = `${event.name}: ${event.description}`;
+                    eventTag = `🎉 **Event: ${event.name}** (${event.description})`;
+                } else if (event) {
+                    score = Math.round(config.takeBaseScore * takeChainLength);
+                    eventTag = `🎉 **Event: ${event.name}** (${event.description})`;
                 } else {
                     score = Math.round(config.takeBaseScore * takeChainLength);
-                    eventMessage = `${event?.name ?? 'The tuna'} was worth taking.`;
                 }
             } else {
-                eventMessage = `The tuna is still too fresh to reward a take. The chain length was ${takeChainLength} and the delicious threshold is ${chain.deliciousThreshold}.`;
+                actionText = `🍣 ${userDisplay} took the tuna too early!`;
+                event = undefined;
             }
 
             if (effectiveAction === 'take' && penalty.penaltyApplied) {
@@ -530,13 +554,18 @@ export function createPassTheTunaEngine(dataDir?: string) {
                 }
             }
 
-            const summary = [
-                `The chain ended at length ${takeChainLength}.`,
-                `The take was worth ${score} points.`,
-                eventMessage,
-            ]
-                .filter(Boolean)
-                .join(' ');
+            const penaltyText =
+                effectiveAction === 'take' && penalty.penaltyApplied ? ' (⚠️ *Idle penalty*)' : '';
+            const chainInfo =
+                !isDelicious && effectiveAction === 'take' && !event
+                    ? `⛓️ Chain: **${takeChainLength}** (needed **${chain.deliciousThreshold}**)`
+                    : `⛓️ Chain: **${takeChainLength}**`;
+
+            const parts = [actionText, chainInfo, `⭐ **+${score} pts**${penaltyText}`];
+            if (eventTag) {
+                parts.push(eventTag);
+            }
+            const summary = parts.join(' | ');
 
             const newChainConfig = loadPassTheTunaConfig(resolvedDataDir);
             const nextChain = {

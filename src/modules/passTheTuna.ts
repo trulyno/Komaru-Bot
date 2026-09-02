@@ -1,12 +1,15 @@
-
 import { commandRegistry } from '../commandRegistry';
 import { logger } from '../logger';
-import { loadPassTheTunaConfig, loadPassTheTunaState, savePassTheTunaState, createPassTheTunaEngine } from '../passTheTuna';
+import {
+    loadPassTheTunaConfig,
+    loadPassTheTunaState,
+    savePassTheTunaState,
+    createPassTheTunaEngine,
+} from '../passTheTuna';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const defaultDataDir = path.resolve(__dirname, '../../data/pass_the_tuna');
-
 
 function isAdmin(interaction: any): boolean {
     const memberPermissions = interaction.memberPermissions?.has?.('Administrator');
@@ -31,7 +34,11 @@ const moduleDefinition = {
             if (!message || message.author?.bot) return;
 
             const state = loadPassTheTunaState(defaultDataDir);
-            if (state.active && state.currentChain && message.channel?.id === state.currentChain.channelId) {
+            if (
+                state.active &&
+                state.currentChain &&
+                message.channel?.id === state.currentChain.channelId
+            ) {
                 try {
                     if (message.deletable) {
                         await message.delete();
@@ -48,26 +55,40 @@ const moduleDefinition = {
             if (message.channel?.id !== state.currentChain.channelId) return;
 
             const action = /\btake\b/i.test(content) ? 'take' : 'pass';
+            const userDisplayName =
+                message.member?.displayName ||
+                message.author?.displayName ||
+                message.author?.username ||
+                'User';
             const result = engine.handleAction({
                 userId: message.author.id,
+                userName: userDisplayName,
                 action,
                 now: Date.now(),
             });
 
             const sendMessage = async (content: string, attachmentPath?: string) => {
-                const payload: any = { content };
+                const payload: any = {
+                    content,
+                    allowedMentions: { parse: [] },
+                };
                 if (attachmentPath && fs.existsSync(attachmentPath)) {
                     payload.files = [attachmentPath];
                 }
 
                 try {
                     const sentMessage = await message.channel.send(payload);
-                    if (content === 'The same user cannot take two actions in a row. Please wait for another player.') {
+                    if (
+                        content ===
+                        'The same user cannot take two actions in a row. Please wait for another player.'
+                    ) {
                         setTimeout(async () => {
                             try {
                                 await sentMessage.delete();
                             } catch (error) {
-                                logger.warn(`Failed to delete queued Pass the Tuna warning message: ${error}`);
+                                logger.warn(
+                                    `Failed to delete queued Pass the Tuna warning message: ${error}`,
+                                );
                             }
                         }, 3000);
                     }
@@ -75,17 +96,24 @@ const moduleDefinition = {
                     logger.warn(`Failed to send Pass the Tuna action message: ${error}`);
                     try {
                         const fallbackSentMessage = await message.channel.send(payload);
-                        if (content === 'The same user cannot take two actions in a row. Please wait for another player.') {
+                        if (
+                            content ===
+                            'The same user cannot take two actions in a row. Please wait for another player.'
+                        ) {
                             setTimeout(async () => {
                                 try {
                                     await fallbackSentMessage.delete();
                                 } catch (fallbackError) {
-                                    logger.warn(`Failed to delete queued Pass the Tuna warning message after fallback send: ${fallbackError}`);
+                                    logger.warn(
+                                        `Failed to delete queued Pass the Tuna warning message after fallback send: ${fallbackError}`,
+                                    );
                                 }
                             }, 3000);
                         }
                     } catch (fallbackError) {
-                        logger.warn(`Failed to send Pass the Tuna action message to channel: ${fallbackError}`);
+                        logger.warn(
+                            `Failed to send Pass the Tuna action message to channel: ${fallbackError}`,
+                        );
                     }
                 }
             };
