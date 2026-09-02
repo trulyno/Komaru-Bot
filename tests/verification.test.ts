@@ -7,26 +7,37 @@ import {
     isVerifier,
     resolveStargateRole,
 } from '../src/modules/verification';
+import { config } from '../src/config';
 import { runTestCase } from './testHarness';
 
 function runVerificationTests() {
     runTestCase('isVerificationChannel validation', () => {
-        assert.strictEqual(isVerificationChannel(null), false);
-        assert.strictEqual(isVerificationChannel({ name: 'general', id: '123' }), false);
+        const originalAllowed = [...config.env.verificationChannelsAllowed];
+        const originalId = config.env.verificationChannelId;
+        config.env.verificationChannelsAllowed = ['screenshots', 'panoramas'];
+        config.env.verificationChannelId = 'verification_channel';
 
-        assert.strictEqual(isVerificationChannel({ name: 'screenshots', id: '101' }), true);
-        assert.strictEqual(isVerificationChannel({ name: 'panoramas', id: '102' }), true);
-        assert.strictEqual(isVerificationChannel({ name: 'random', id: 'verification_channel' }), true);
+        try {
+            assert.strictEqual(isVerificationChannel(null), false);
+            assert.strictEqual(isVerificationChannel({ name: 'general', id: '123' }), false);
 
-        // Thread inside screenshots channel
-        assert.strictEqual(
-            isVerificationChannel({
-                name: 'my-run-thread',
-                id: '201',
-                parent: { name: 'screenshots', id: '101' },
-            }),
-            true,
-        );
+            assert.strictEqual(isVerificationChannel({ name: 'screenshots', id: '101' }), true);
+            assert.strictEqual(isVerificationChannel({ name: 'panoramas', id: '102' }), true);
+            assert.strictEqual(isVerificationChannel({ name: 'random', id: 'verification_channel' }), true);
+
+            // Thread inside screenshots channel
+            assert.strictEqual(
+                isVerificationChannel({
+                    name: 'my-run-thread',
+                    id: '201',
+                    parent: { name: 'screenshots', id: '101' },
+                }),
+                true,
+            );
+        } finally {
+            config.env.verificationChannelsAllowed = originalAllowed;
+            config.env.verificationChannelId = originalId;
+        }
     });
 
     runTestCase('isVerifier permissions and roles', () => {

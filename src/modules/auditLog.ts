@@ -12,6 +12,7 @@ import {
     handleGhostPingDelete,
     handleMessageDeletion,
     handleTimeoutChange,
+    markMessageAsBotDeleted,
     MAX_TIMEOUT_MS,
     parseDurationToMilliseconds,
     sendAuditLog,
@@ -497,6 +498,11 @@ const moduleDefinition = {
 
                 try {
                     const messages = await interaction.channel.messages.fetch({ limit: count });
+                    messages.forEach((msg: any) => {
+                        if (msg?.id) {
+                            markMessageAsBotDeleted(msg.id);
+                        }
+                    });
                     await interaction.channel.bulkDelete(messages);
                     await sendAuditLog(
                         interaction.guild,

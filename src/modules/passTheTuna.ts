@@ -6,6 +6,7 @@ import {
     savePassTheTunaState,
     createPassTheTunaEngine,
 } from '../passTheTuna';
+import { markMessageAsBotDeleted } from '../services/auditLogService';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -41,6 +42,7 @@ const moduleDefinition = {
             ) {
                 try {
                     if (message.deletable) {
+                        markMessageAsBotDeleted(message.id);
                         await message.delete();
                     }
                 } catch (error) {

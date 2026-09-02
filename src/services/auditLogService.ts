@@ -14,6 +14,69 @@ export const duplicateMessageWindow = new Map<
     }
 >();
 export const pendingGhostPings = new Map<string, any>();
+export const botDeletedMessageIds = new Map<string, number>();
+const BOT_DELETION_TTL_MS = 60000;
+
+export function markMessageAsBotDeleted(messageId: string): void {
+    if (!messageId) return;
+    botDeletedMessageIds.set(messageId, Date.now());
+}
+
+export function isMessageBotDeleted(messageId: string): boolean {
+    if (!messageId) return false;
+    const now = Date.now();
+    for (const [id, timestamp] of botDeletedMessageIds.entries()) {
+        if (now - timestamp > BOT_DELETION_TTL_MS) {
+            botDeletedMessageIds.delete(id);
+        }
+    }
+
+    return botDeletedMessageIds.has(messageId);
+}
+
+export async function isDeletionPerformedByBot(message: any): Promise<boolean> {
+    if (isMessageBotDeleted(message?.id)) {
+        return true;
+    }
+
+    if (!message?.guild || !message?.client?.user?.id) {
+        return false;
+    }
+
+    if (typeof message.guild.fetchAuditLogs !== 'function') {
+        return false;
+    }
+
+    try {
+        const logs = await message.guild.fetchAuditLogs({
+            limit: 5,
+            type: 72, // AuditLogEvent.MessageDelete
+        });
+        if (!logs?.entries) return false;
+
+        const botId = message.client.user.id;
+        const now = Date.now();
+
+        for (const entry of logs.entries.values()) {
+            const isBot = entry.executor?.id === botId;
+            const isTarget = !entry.target || entry.target.id === message.author?.id;
+            const isRecent = Math.abs(now - (entry.createdTimestamp ?? 0)) < 8000;
+            const isChannel =
+                !entry.extra?.channel || entry.extra.channel.id === message.channel?.id;
+
+            if (isBot && isTarget && isRecent && isChannel) {
+                if (message.id) {
+                    markMessageAsBotDeleted(message.id);
+                }
+                return true;
+            }
+        }
+    } catch {
+        // Missing permissions or mock guild
+    }
+
+    return false;
+}
 
 export const DEFAULT_MODERATOR_ROLE_NAME = config.auditLog.defaultModeratorRoleName;
 export const DEFAULT_ADMIN_ROLE_NAME = config.auditLog.defaultAdminRoleName;
@@ -77,8 +140,10 @@ export function getAuditChannel(guild: any): any | null {
     }
 
     const channel =
-        guild.channels.cache.get(configuredChannelId) ??
-        guild.channels.resolve(configuredChannelId);
+        guild.channels.cache?.get?.(configuredChannelId) ??
+        (typeof guild.channels.resolve === 'function'
+            ? guild.channels.resolve(configuredChannelId)
+            : null);
     if (channel?.isTextBased?.()) {
         return channel;
     }
@@ -241,6 +306,11 @@ export async function handleDuplicateSpamming(message: any): Promise<void> {
                 existingEntry.messages.concat(message).map((item: any) => [item.id, item]),
             ).values(),
         ];
+        messagesToDelete.forEach((item: any) => {
+            if (item?.id) {
+                markMessageAsBotDeleted(item.id);
+            }
+        });
         await Promise.allSettled(
             messagesToDelete.map((item: any) => item.delete().catch(() => undefined)),
         );
@@ -268,6 +338,11 @@ export async function handleGhostPing(message: any): Promise<void> {
 
 export async function handleGhostPingDelete(message: any): Promise<void> {
     if (!message?.guild || message.author?.bot) {
+        return;
+    }
+
+    if (await isDeletionPerformedByBot(message)) {
+        pendingGhostPings.delete(message.id);
         return;
     }
 
@@ -328,6 +403,10 @@ export async function handleTimeoutChange(oldMember: any, newMember: any): Promi
 
 export async function handleMessageDeletion(message: any): Promise<void> {
     if (!message?.guild || !message.author || message.author.bot) {
+        return;
+    }
+
+    if (await isDeletionPerformedByBot(message)) {
         return;
     }
 
