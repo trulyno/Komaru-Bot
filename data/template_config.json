@@ -1,14 +1,14 @@
 {
   "issueTemplateFields": [
-    "modpack version",
-    "is on server",
-    "modifications done",
-    "description"
+    "Modpack version",
+    "Is on server",
+    "Modifications done",
+    "Description"
   ],
   "suggestionTemplateFields": [
-    "description",
-    "how would it fit with start",
-    "possible issues"
+    "Description",
+    "How would it fit with StarT",
+    "Possible issues"
   ],
   "modpackVersions": [
     "Theta 1 Hotfix 3",

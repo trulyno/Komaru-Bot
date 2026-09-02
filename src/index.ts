@@ -7,7 +7,7 @@ import { once } from 'node:events';
 import { cleanAndSyncCommands, restartBot, stopBot, syncCommands } from './commandHandlers';
 import { commandRegistry } from './commandRegistry';
 
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, Partials } = require('discord.js');
 
 const token = config.env.discordToken;
 if (!token) {
@@ -22,6 +22,14 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildBans,
+        GatewayIntentBits.GuildMessageReactions,
+    ],
+    partials: [
+        Partials.Message,
+        Partials.Channel,
+        Partials.Reaction,
+        Partials.User,
+        Partials.GuildMember,
     ],
 });
 
