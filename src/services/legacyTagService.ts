@@ -1,3 +1,4 @@
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Colors, EmbedBuilder } from 'discord.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { logger } from '../logger';
@@ -23,6 +24,19 @@ export interface LegacyTagStorageFile {
 export interface LegacyTagNavigationFile {
     tags?: Record<string, LegacyTagEntry>;
     aliases?: Record<string, string>;
+}
+
+export interface LegacyTagItem {
+    name: string;
+    aliases: string[];
+}
+
+export interface LegacyTagPageData {
+    tags: LegacyTagItem[];
+    currentPage: number;
+    totalPages: number;
+    totalTags: number;
+    pageSize: number;
 }
 
 export async function safeReply(message: any, options: any): Promise<void> {
@@ -87,6 +101,159 @@ export function resolveCanonicalTagName(
     return null;
 }
 
+export function loadLegacyTagNavigation(customPath?: string): LegacyTagNavigationFile {
+    const navigationPath = customPath ?? path.resolve(process.cwd(), 'data', 'tag_navigation.json');
+    if (!fs.existsSync(navigationPath)) {
+        return { tags: {}, aliases: {} };
+    }
+    try {
+        return JSON.parse(fs.readFileSync(navigationPath, 'utf8')) as LegacyTagNavigationFile;
+    } catch (error) {
+        logger.error(`Failed to load legacy tag navigation file: ${error}`);
+        return { tags: {}, aliases: {} };
+    }
+}
+
+export function getAllLegacyTagNames(navigation?: LegacyTagNavigationFile): string[] {
+    const nav = navigation ?? loadLegacyTagNavigation();
+    const tagNames = Object.keys(nav.tags ?? {});
+    return tagNames.sort(
+        (a, b) =>
+            a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }) ||
+            a.localeCompare(b),
+    );
+}
+
+export function getLegacyTagPage(
+    page: number = 1,
+    pageSize: number = 20,
+    navigation?: LegacyTagNavigationFile,
+): LegacyTagPageData {
+    const nav = navigation ?? loadLegacyTagNavigation();
+    const allTagNames = getAllLegacyTagNames(nav);
+
+    const totalTags = allTagNames.length;
+    const totalPages = Math.max(1, Math.ceil(totalTags / pageSize));
+    const currentPage = Math.max(1, Math.min(totalPages, page));
+
+    const startIndex = (currentPage - 1) * pageSize;
+    const pageTagNames = allTagNames.slice(startIndex, startIndex + pageSize);
+
+    const topLevelAliasesByTarget = new Map<string, string[]>();
+    for (const [alias, target] of Object.entries(nav.aliases ?? {})) {
+        const canonical = normalizeTagName(target);
+        if (!topLevelAliasesByTarget.has(canonical)) {
+            topLevelAliasesByTarget.set(canonical, []);
+        }
+        topLevelAliasesByTarget.get(canonical)!.push(alias);
+    }
+
+    const tags: LegacyTagItem[] = pageTagNames.map((name) => {
+        const entry = nav.tags?.[name];
+        const aliasesSet = new Set<string>();
+
+        for (const a of entry?.aliases ?? []) {
+            if (a && a.toLowerCase() !== name.toLowerCase()) {
+                aliasesSet.add(a);
+            }
+        }
+
+        const topAliases = topLevelAliasesByTarget.get(normalizeTagName(name)) ?? [];
+        for (const a of topAliases) {
+            if (a && a.toLowerCase() !== name.toLowerCase()) {
+                aliasesSet.add(a);
+            }
+        }
+
+        return {
+            name,
+            aliases: Array.from(aliasesSet).sort((a, b) => a.localeCompare(b)),
+        };
+    });
+
+    return {
+        tags,
+        currentPage,
+        totalPages,
+        totalTags,
+        pageSize,
+    };
+}
+
+export function buildTagPaginationEmbed(pageData: LegacyTagPageData): EmbedBuilder {
+    const { tags, currentPage, totalPages, totalTags } = pageData;
+
+    const embed = new EmbedBuilder()
+        .setTitle('🏷️ Legacy Tags Directory')
+        .setColor(Colors.Blurple)
+        .setFooter({
+            text: `Page ${currentPage} of ${totalPages} • Total: ${totalTags} tags • %t <tag>`,
+        })
+        .setTimestamp();
+
+    if (tags.length === 0) {
+        embed.setDescription('No legacy tags found.');
+        return embed;
+    }
+
+    const lines = tags.map((t) => {
+        const aliasText =
+            t.aliases && t.aliases.length > 0
+                ? ` *(aliases: ${t.aliases.map((a) => `\`${a}\``).join(', ')})*`
+                : '';
+        return `• \`${t.name}\`${aliasText}`;
+    });
+
+    embed.setDescription(
+        `Browse all legacy tags in alphabetical order.\nUse \`%t <tag>\` to display any tag.\n\n` +
+            lines.join('\n'),
+    );
+
+    return embed;
+}
+
+export function buildTagPaginationRow(
+    currentPage: number,
+    totalPages: number,
+    authorId?: string,
+): ActionRowBuilder<ButtonBuilder> {
+    const userId = authorId ?? '';
+    const firstButton = new ButtonBuilder()
+        .setCustomId(`legacy_tags:first:1:${userId}`)
+        .setLabel('First')
+        .setEmoji('⏮️')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(currentPage <= 1);
+
+    const prevButton = new ButtonBuilder()
+        .setCustomId(`legacy_tags:prev:${Math.max(1, currentPage - 1)}:${userId}`)
+        .setLabel('Previous')
+        .setEmoji('◀️')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(currentPage <= 1);
+
+    const nextButton = new ButtonBuilder()
+        .setCustomId(`legacy_tags:next:${Math.min(totalPages, currentPage + 1)}:${userId}`)
+        .setLabel('Next')
+        .setEmoji('▶️')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(currentPage >= totalPages);
+
+    const lastButton = new ButtonBuilder()
+        .setCustomId(`legacy_tags:last:${totalPages}:${userId}`)
+        .setLabel('Last')
+        .setEmoji('⏭️')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(currentPage >= totalPages);
+
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(
+        firstButton,
+        prevButton,
+        nextButton,
+        lastButton,
+    );
+}
+
 export async function resolveAndReplyTag(tagName: string, message: any): Promise<boolean> {
     const navigationPath = path.resolve(process.cwd(), 'data', 'tag_navigation.json');
     const storageDir = path.resolve(process.cwd(), 'data', 'legacy_tags', 'tag_storage');
@@ -96,9 +263,7 @@ export async function resolveAndReplyTag(tagName: string, message: any): Promise
         return false;
     }
 
-    const navigation = JSON.parse(
-        fs.readFileSync(navigationPath, 'utf8'),
-    ) as LegacyTagNavigationFile;
+    const navigation = loadLegacyTagNavigation(navigationPath);
     const aliasIndex = buildAliasIndex(navigation);
     const canonicalName = resolveCanonicalTagName(tagName, navigation, aliasIndex);
 
@@ -112,7 +277,10 @@ export async function resolveAndReplyTag(tagName: string, message: any): Promise
     }
 
     if (entry.type?.toLowerCase() === 'logic') {
-        await safeReply(message, 'Logic tags are not supported in this read-only legacy tag system.');
+        await safeReply(
+            message,
+            'Logic tags are not supported in this read-only legacy tag system.',
+        );
         return true;
     }
 
@@ -164,14 +332,38 @@ export async function handleLegacyTagMessage(message: any): Promise<void> {
     }
 
     const content = message.content?.trim();
-    if (!content || !/^%t(?:\s|$)/i.test(content)) {
+    if (!content) {
+        return;
+    }
+
+    // Direct %tags or %taglist command
+    if (/^%(?:tags|taglist)(?:\s|$)/i.test(content)) {
+        try {
+            const arg = content.replace(/^%(?:tags|taglist)/i, '').trim();
+            const requestedPage = parseInt(arg, 10) || 1;
+            const pageData = getLegacyTagPage(requestedPage);
+            const embed = buildTagPaginationEmbed(pageData);
+            const row = buildTagPaginationRow(
+                pageData.currentPage,
+                pageData.totalPages,
+                message.author?.id,
+            );
+            await safeReply(message, { embeds: [embed], components: [row] });
+        } catch (error) {
+            logger.error(`Error displaying legacy tags directory: ${error}`);
+            await safeReply(message, 'Unable to retrieve the tag directory right now.');
+        }
+        return;
+    }
+
+    if (!/^%t(?:\s|$)/i.test(content)) {
         return;
     }
 
     try {
         const body = content.replace(/^%t/i, '').trim();
         if (!body) {
-            await safeReply(message, 'Usage: `%t <tag_name_or_alias>`');
+            await safeReply(message, 'Usage: `%t <tag_name_or_alias>` or `%tags`');
             return;
         }
 
@@ -183,6 +375,19 @@ export async function handleLegacyTagMessage(message: any): Promise<void> {
                 message,
                 'Tags are read-only in this bot. Please use the command system to create new commands instead.',
             );
+            return;
+        }
+
+        if (command === 'all' || command === 'tags' || command === 'all_tags') {
+            const requestedPage = parts[1] ? parseInt(parts[1], 10) || 1 : 1;
+            const pageData = getLegacyTagPage(requestedPage);
+            const embed = buildTagPaginationEmbed(pageData);
+            const row = buildTagPaginationRow(
+                pageData.currentPage,
+                pageData.totalPages,
+                message.author?.id,
+            );
+            await safeReply(message, { embeds: [embed], components: [row] });
             return;
         }
 
