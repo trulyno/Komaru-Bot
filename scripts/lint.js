@@ -5,9 +5,10 @@ if (typeof util.styleText !== 'function') {
     util.styleText = (_format, text) => (typeof text === 'string' ? text : String(text || ''));
 }
 
-const { ESLint } = require('eslint');
+const eslintPkg = require('eslint');
 
 async function main() {
+    const ESLint = typeof eslintPkg.loadESLint === 'function' ? await eslintPkg.loadESLint() : eslintPkg.ESLint;
     const eslint = new ESLint();
     const args = process.argv.slice(2);
     const patterns = args.length > 0 ? args : ['.'];
