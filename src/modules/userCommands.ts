@@ -237,13 +237,18 @@ const moduleDefinition = {
             options: [{ name: 'user', description: 'Target user', type: 6, required: true }],
             handler: async (interaction: any) => {
                 const targetUser = interaction.options?.getUser?.('user') || interaction.user;
+                const targetName =
+                    targetUser.displayName ||
+                    targetUser.globalName ||
+                    targetUser.username ||
+                    'User';
                 const cmds = storage.getCommandsByAuthor(targetUser.id);
                 const bytes = storage.calculateUserStorage(targetUser.id);
                 const mb = (bytes / (1024 * 1024)).toFixed(2);
 
                 if (cmds.length === 0) {
                     await interaction.reply({
-                        content: `User <@${targetUser.id}> has not created any commands.`,
+                        content: `User **${targetName}** has not created any commands.`,
                         ephemeral: true,
                     });
                     return;
@@ -256,7 +261,7 @@ const moduleDefinition = {
                     )
                     .join('\n');
                 await interaction.reply({
-                    content: `**User Commands created by <@${targetUser.id}> (${cmds.length} total, ${mb} MB used):**\n${listStr}`,
+                    content: `**User Commands created by ${targetName} (${cmds.length} total, ${mb} MB used):**\n${listStr}`,
                     ephemeral: true,
                 });
             },
@@ -267,6 +272,12 @@ const moduleDefinition = {
             description: 'Check your current user command storage usage and quota',
             handler: async (interaction: any) => {
                 const userId = interaction.user.id;
+                const userDisplayName =
+                    interaction.member?.displayName ||
+                    interaction.user?.displayName ||
+                    interaction.user?.globalName ||
+                    interaction.user?.username ||
+                    'User';
                 const currentBytes = storage.calculateUserStorage(userId);
                 const maxBytes = quotaManager.getUserMaxStorageBytes(interaction.member);
                 const currentMb = (currentBytes / (1024 * 1024)).toFixed(2);
@@ -274,7 +285,7 @@ const moduleDefinition = {
                 const isRestricted = quotaManager.isUserRestricted(userId);
 
                 await interaction.reply({
-                    content: `**Storage Quota Info for <@${userId}>:**\n- **Usage:** ${currentMb} MB / ${maxMb} MB\n- **Status:** ${isRestricted ? '❌ Restricted' : '✅ Allowed'}`,
+                    content: `**Storage Quota Info for ${userDisplayName}:**\n- **Usage:** ${currentMb} MB / ${maxMb} MB\n- **Status:** ${isRestricted ? '❌ Restricted' : '✅ Allowed'}`,
                     ephemeral: true,
                 });
             },
@@ -283,7 +294,14 @@ const moduleDefinition = {
         commandRegistry.register({
             name: 'find_command',
             description: 'Find user commands by trigger text, including similar triggers',
-            options: [{ name: 'trigger', description: 'Trigger text to search for', type: 3, required: true }],
+            options: [
+                {
+                    name: 'trigger',
+                    description: 'Trigger text to search for',
+                    type: 3,
+                    required: true,
+                },
+            ],
             handler: async (interaction: any) => {
                 const trigger = interaction.options?.getString?.('trigger');
                 if (!trigger) {
@@ -373,10 +391,13 @@ const moduleDefinition = {
                     return;
                 }
 
-                const lines = openReports.map(
-                    (r) =>
-                        `- **ID \`${r.id}\`**: Command **${r.commandName}** reported by <@${r.reporterId}>. Reason: "${r.reason}" (${r.createdAt})`,
-                );
+                const lines = openReports.map((r) => {
+                    const reporter =
+                        interaction.guild?.members?.cache?.get?.(r.reporterId)?.displayName ||
+                        interaction.client?.users?.cache?.get?.(r.reporterId)?.username ||
+                        `User_${r.reporterId}`;
+                    return `- **ID \`${r.id}\`**: Command **${r.commandName}** reported by **${reporter}**. Reason: "${r.reason}" (${r.createdAt})`;
+                });
                 await interaction.reply({
                     content: `**Open Command Reports (${openReports.length}):**\n${lines.join('\n')}`,
                     ephemeral: true,
@@ -443,11 +464,16 @@ const moduleDefinition = {
                     return;
                 }
 
+                const targetName =
+                    targetUser.displayName ||
+                    targetUser.globalName ||
+                    targetUser.username ||
+                    'User';
                 const count = storage.wipeUserCommands(targetUser.id);
                 triggerPool.loadFromStorage();
 
                 await interaction.reply({
-                    content: `Wiped **${count}** commands created by <@${targetUser.id}>.`,
+                    content: `Wiped **${count}** commands created by **${targetName}**.`,
                     ephemeral: true,
                 });
             },
@@ -475,9 +501,14 @@ const moduleDefinition = {
                     return;
                 }
 
+                const targetName =
+                    targetUser.displayName ||
+                    targetUser.globalName ||
+                    targetUser.username ||
+                    'User';
                 configStore.restrictUser(targetUser.id);
                 await interaction.reply({
-                    content: `User <@${targetUser.id}> is now restricted from creating commands.`,
+                    content: `User **${targetName}** is now restricted from creating commands.`,
                     ephemeral: true,
                 });
             },
@@ -505,15 +536,20 @@ const moduleDefinition = {
                     return;
                 }
 
+                const targetName =
+                    targetUser.displayName ||
+                    targetUser.globalName ||
+                    targetUser.username ||
+                    'User';
                 const removed = configStore.unrestrictUser(targetUser.id);
                 if (removed) {
                     await interaction.reply({
-                        content: `Restriction removed for user <@${targetUser.id}>.`,
+                        content: `Restriction removed for user **${targetName}**.`,
                         ephemeral: true,
                     });
                 } else {
                     await interaction.reply({
-                        content: `User <@${targetUser.id}> was not restricted.`,
+                        content: `User **${targetName}** was not restricted.`,
                         ephemeral: true,
                     });
                 }
@@ -640,7 +676,12 @@ const moduleDefinition = {
             name: 'set_public_aliases',
             description: '[Admin] Enable or disable public alias creation by all users',
             options: [
-                { name: 'enabled', description: 'Enable public alias creation (true/false)', type: 5, required: true },
+                {
+                    name: 'enabled',
+                    description: 'Enable public alias creation (true/false)',
+                    type: 5,
+                    required: true,
+                },
             ],
             handler: async (interaction: any) => {
                 if (
@@ -812,11 +853,24 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
         case 'usercommands': {
             if (!arg1) return false;
             const targetId = extractUserIdFromMention(arg1);
+            const targetMember =
+                message.guild?.members?.cache?.get?.(targetId) ||
+                message.mentions?.members?.get?.(targetId);
+            const targetUserObj =
+                message.mentions?.users?.get?.(targetId) ||
+                message.client?.users?.cache?.get?.(targetId);
+            const targetName =
+                targetMember?.displayName ||
+                targetUserObj?.displayName ||
+                targetUserObj?.globalName ||
+                targetUserObj?.username ||
+                `User_${targetId}`;
+
             const cmds = storage.getCommandsByAuthor(targetId);
             const bytes = storage.calculateUserStorage(targetId);
             const mb = (bytes / (1024 * 1024)).toFixed(2);
             if (cmds.length === 0) {
-                await message.reply(`User <@${targetId}> has not created any commands.`);
+                await message.reply(`User **${targetName}** has not created any commands.`);
             } else {
                 const listStr = cmds
                     .map(
@@ -825,19 +879,25 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
                     )
                     .join('\n');
                 await message.reply(
-                    `**User Commands created by <@${targetId}> (${cmds.length} total, ${mb} MB used):**\n${listStr}`,
+                    `**User Commands created by ${targetName} (${cmds.length} total, ${mb} MB used):**\n${listStr}`,
                 );
             }
             return true;
         }
         case 'storage_info': {
+            const userDisplayName =
+                message.member?.displayName ||
+                message.author?.displayName ||
+                message.author?.globalName ||
+                message.author?.username ||
+                'User';
             const currentBytes = storage.calculateUserStorage(userId);
             const maxBytes = quotaManager.getUserMaxStorageBytes(message.member);
             const currentMb = (currentBytes / (1024 * 1024)).toFixed(2);
             const maxMb = (maxBytes / (1024 * 1024)).toFixed(2);
             const isRestricted = quotaManager.isUserRestricted(userId);
             await message.reply(
-                `**Storage Quota Info for <@${userId}>:**\n- **Usage:** ${currentMb} MB / ${maxMb} MB\n- **Status:** ${isRestricted ? '❌ Restricted' : '✅ Allowed'}`,
+                `**Storage Quota Info for ${userDisplayName}:**\n- **Usage:** ${currentMb} MB / ${maxMb} MB\n- **Status:** ${isRestricted ? '❌ Restricted' : '✅ Allowed'}`,
             );
             return true;
         }
@@ -851,7 +911,9 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             const lines = matches.map(
                 (match) => `- **${match.commandName}**: \`${match.triggerValue}\``,
             );
-            await message.reply(`**Matching commands for trigger \"${arg1}\":**\n${lines.join('\n')}`);
+            await message.reply(
+                `**Matching commands for trigger \"${arg1}\":**\n${lines.join('\n')}`,
+            );
             return true;
         }
         case 'report_command': {
@@ -876,10 +938,13 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             if (openReports.length === 0) {
                 await message.reply('No open reports at this time.');
             } else {
-                const lines = openReports.map(
-                    (r) =>
-                        `- **ID \`${r.id}\`**: Command **${r.commandName}** reported by <@${r.reporterId}>. Reason: "${r.reason}"`,
-                );
+                const lines = openReports.map((r) => {
+                    const reporter =
+                        message.guild?.members?.cache?.get?.(r.reporterId)?.displayName ||
+                        message.client?.users?.cache?.get?.(r.reporterId)?.username ||
+                        `User_${r.reporterId}`;
+                    return `- **ID \`${r.id}\`**: Command **${r.commandName}** reported by **${reporter}**. Reason: "${r.reason}"`;
+                });
                 await message.reply(
                     `**Open Command Reports (${openReports.length}):**\n${lines.join('\n')}`,
                 );
@@ -907,9 +972,21 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             }
             if (!arg1) return false;
             const targetId = extractUserIdFromMention(arg1);
+            const targetMember =
+                message.guild?.members?.cache?.get?.(targetId) ||
+                message.mentions?.members?.get?.(targetId);
+            const targetUserObj =
+                message.mentions?.users?.get?.(targetId) ||
+                message.client?.users?.cache?.get?.(targetId);
+            const targetName =
+                targetMember?.displayName ||
+                targetUserObj?.displayName ||
+                targetUserObj?.globalName ||
+                targetUserObj?.username ||
+                `User_${targetId}`;
             const count = storage.wipeUserCommands(targetId);
             triggerPool.loadFromStorage();
-            await message.reply(`Wiped **${count}** commands created by <@${targetId}>.`);
+            await message.reply(`Wiped **${count}** commands created by **${targetName}**.`);
             return true;
         }
         case 'restrict_user': {
@@ -919,8 +996,20 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             }
             if (!arg1) return false;
             const targetId = extractUserIdFromMention(arg1);
+            const targetMember =
+                message.guild?.members?.cache?.get?.(targetId) ||
+                message.mentions?.members?.get?.(targetId);
+            const targetUserObj =
+                message.mentions?.users?.get?.(targetId) ||
+                message.client?.users?.cache?.get?.(targetId);
+            const targetName =
+                targetMember?.displayName ||
+                targetUserObj?.displayName ||
+                targetUserObj?.globalName ||
+                targetUserObj?.username ||
+                `User_${targetId}`;
             configStore.restrictUser(targetId);
-            await message.reply(`User <@${targetId}> is now restricted from creating commands.`);
+            await message.reply(`User **${targetName}** is now restricted from creating commands.`);
             return true;
         }
         case 'unrestrict_user': {
@@ -930,11 +1019,23 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             }
             if (!arg1) return false;
             const targetId = extractUserIdFromMention(arg1);
+            const targetMember =
+                message.guild?.members?.cache?.get?.(targetId) ||
+                message.mentions?.members?.get?.(targetId);
+            const targetUserObj =
+                message.mentions?.users?.get?.(targetId) ||
+                message.client?.users?.cache?.get?.(targetId);
+            const targetName =
+                targetMember?.displayName ||
+                targetUserObj?.displayName ||
+                targetUserObj?.globalName ||
+                targetUserObj?.username ||
+                `User_${targetId}`;
             const removed = configStore.unrestrictUser(targetId);
             if (removed) {
-                await message.reply(`Restriction removed for user <@${targetId}>.`);
+                await message.reply(`Restriction removed for user **${targetName}**.`);
             } else {
-                await message.reply(`User <@${targetId}> was not restricted.`);
+                await message.reply(`User **${targetName}** was not restricted.`);
             }
             return true;
         }
@@ -963,7 +1064,9 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             const success = storage.addAliasToCommand(arg1, restArgs);
             if (success) {
                 triggerPool.loadFromStorage();
-                await message.reply(`✅ Alias \`${restArgs}\` added to command **${cmd.metadata.name}**!`);
+                await message.reply(
+                    `✅ Alias \`${restArgs}\` added to command **${cmd.metadata.name}**!`,
+                );
             } else {
                 await message.reply(`Failed to add alias to command **${arg1}**.`);
             }
@@ -977,7 +1080,9 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             if (!arg1) return false;
             const enabled = arg1.toLowerCase() === 'true' || arg1 === '1';
             configStore.setAllowPublicAliases(enabled);
-            await message.reply(`✅ Public alias creation is now **${enabled ? 'enabled' : 'disabled'}**.`);
+            await message.reply(
+                `✅ Public alias creation is now **${enabled ? 'enabled' : 'disabled'}**.`,
+            );
             return true;
         }
         case 'set_role_storage': {

@@ -22,14 +22,7 @@ export interface UserCommandTrigger {
 }
 
 export type ActionType =
-    | 'say'
-    | 'reply'
-    | 'whisper'
-    | 'send'
-    | 'memorize'
-    | 'embed'
-    | 'ponder'
-    | 'pipeline';
+    'say' | 'reply' | 'whisper' | 'send' | 'memorize' | 'embed' | 'ponder' | 'pipeline';
 
 export interface ComplexValue {
     type: 'choice' | 'random' | 'calc' | 'remember' | 'literal';

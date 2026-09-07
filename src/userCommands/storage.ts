@@ -199,7 +199,9 @@ export class UserCommandStorage {
         return all.filter((cmd) => cmd.metadata.author === authorId);
     }
 
-    public findCommandsByTrigger(trigger: string): Array<{ commandName: string; triggerValue: string }> {
+    public findCommandsByTrigger(
+        trigger: string,
+    ): Array<{ commandName: string; triggerValue: string }> {
         const normalizedInput = trigger.trim().toLowerCase();
         if (!normalizedInput) {
             return [];
@@ -264,7 +266,10 @@ export class UserCommandStorage {
         const normalizedInput = inputWords.join(' ');
         const normalizedCandidate = candidateWords.join(' ');
 
-        if (normalizedInput.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedInput)) {
+        if (
+            normalizedInput.includes(normalizedCandidate) ||
+            normalizedCandidate.includes(normalizedInput)
+        ) {
             score += 200;
         }
 

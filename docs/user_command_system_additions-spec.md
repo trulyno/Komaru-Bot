@@ -101,17 +101,18 @@ Commands can evaluate conditions using the `ponder` instruction:
 
 ```md
 ponder {(input is "rock") and not (input is "scissors")} { # if
-    you say "You chose rock"
+you say "You chose rock"
 }
 ponder again {(input is "paper") and not (input is "rock")} { # else if
-    you say "You chose paper"
+you say "You chose paper"
 }
 otherwise { # else
-    you say "You chose scissors"
+you say "You chose scissors"
 }
 ```
 
 Boolean expression operators:
+
 - `and`, `or`, `not`
 - `is`, `is not`
 - `>`, `<`, `>=`, `<=`
@@ -122,10 +123,10 @@ Commands can send formatted Discord embeds using the `you embed` statement:
 
 ```md
 you embed {
-    title "Player Status"
-    description "{user} has executed the command!"
-    color "#6a5acd"
-    field "Choice" - "{input}"
+title "Player Status"
+description "{user} has executed the command!"
+color "#6a5acd"
+field "Choice" - "{input}"
 }
 ```
 

@@ -23,7 +23,10 @@ function runVerificationTests() {
 
             assert.strictEqual(isVerificationChannel({ name: 'screenshots', id: '101' }), true);
             assert.strictEqual(isVerificationChannel({ name: 'panoramas', id: '102' }), true);
-            assert.strictEqual(isVerificationChannel({ name: 'random', id: 'verification_channel' }), true);
+            assert.strictEqual(
+                isVerificationChannel({ name: 'random', id: 'verification_channel' }),
+                true,
+            );
 
             // Thread inside screenshots channel
             assert.strictEqual(

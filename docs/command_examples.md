@@ -1,6 +1,7 @@
 # User Command Examples
 
 ### 1. Quick Command Creation (`qt`)
+
 Simply mention `@Komaru` and send `qt "trigger"` followed by response text (and optional attached media):
 
 ```md
@@ -10,6 +11,7 @@ Pong! Here is a quick message response.
 ```
 
 Author-scoped quick command (only triggers when you say it):
+
 ```md
 @Komaru
 qt i "!myintro"
@@ -19,6 +21,7 @@ Hello everyone! I am {user}.
 ---
 
 ### 2. Regex Triggers with Capture Groups (`{match [1]}`)
+
 Capture user inputs directly inside regex patterns:
 
 ```md
@@ -32,6 +35,7 @@ you reply "You chose **{match [1]}**! I choose **{choice {"rock", "paper", "scis
 ---
 
 ### 3. Rich Embeds (`you embed`)
+
 Output custom styled Discord embeds:
 
 ```md
@@ -40,18 +44,19 @@ name "ServerInfo"
 description "Displays server info"
 when someone says "!serverinfo"
 you embed {
-    title "Server & User Info"
-    description "Information for {user}"
-    color "#6a5acd"
-    field "Channel" - "{channel}"
-    field "Server" - "{server}"
-    field "Date" - "{date} {time}"
+title "Server & User Info"
+description "Information for {user}"
+color "#6a5acd"
+field "Channel" - "{channel}"
+field "Server" - "{server}"
+field "Date" - "{date} {time}"
 }
 ```
 
 ---
 
 ### 4. Conditionals (`ponder`, `ponder again`, `otherwise`)
+
 Execute actions based on boolean evaluation:
 
 ```md
@@ -60,19 +65,20 @@ name "PickGame"
 description "Evaluates rock paper scissors choice"
 when someone says /!pick (rock|paper|scissors)/
 ponder {(match [1] is "rock")} {
-    you reply "You picked rock! I pick paper. I win!"
+you reply "You picked rock! I pick paper. I win!"
 }
 ponder again {(match [1] is "paper")} {
-    you reply "You picked paper! I pick scissors. I win!"
+you reply "You picked paper! I pick scissors. I win!"
 }
 otherwise {
-    you reply "You picked scissors! I pick rock. I win!"
+you reply "You picked scissors! I pick rock. I win!"
 }
 ```
 
 ---
 
 ### 5. String Processing Pipeline (`scratch pole`)
+
 Transform and process text strings:
 
 ```md
@@ -80,7 +86,7 @@ Transform and process text strings:
 name "FormatWords"
 description "Splits, trims, uppercase and sorts text"
 vars {
-    0 - formatted
+0 - formatted
 }
 when someone says "!format"
 scratch pole {input}
@@ -96,6 +102,7 @@ you reply "Formatted words: **{remember [formatted]}**"
 ---
 
 ### 6. Metadata Limits, Aliases & Co-authors
+
 Configure command metadata, aliases, and co-authors:
 
 ```md

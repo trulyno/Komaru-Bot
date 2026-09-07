@@ -227,11 +227,7 @@ export async function handleVerificationForm(interaction: ModalSubmitInteraction
         });
 
         const targetChannelId = config.env.verificationChannelId;
-        if (
-            interaction.guild &&
-            targetChannelId &&
-            targetChannelId !== interaction.channelId
-        ) {
+        if (interaction.guild && targetChannelId && targetChannelId !== interaction.channelId) {
             try {
                 let notifyChannel: any = interaction.guild.channels.cache.get(targetChannelId);
                 if (!notifyChannel && interaction.client) {

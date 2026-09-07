@@ -20,7 +20,9 @@ export function loadJsonConfigFile<T>(filePath: string, defaultConfig: T): T {
             ...parsed,
         };
     } catch (error) {
-        logger.warn(`Failed to load JSON config from ${filePath}, falling back to defaults: ${error}`);
+        logger.warn(
+            `Failed to load JSON config from ${filePath}, falling back to defaults: ${error}`,
+        );
         return defaultConfig;
     }
 }

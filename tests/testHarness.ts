@@ -1,7 +1,4 @@
-export async function runTestCase(
-    name: string,
-    fn: () => void | Promise<void>,
-): Promise<void> {
+export async function runTestCase(name: string, fn: () => void | Promise<void>): Promise<void> {
     console.log(`[TEST] ${name}`);
     try {
         await fn();

@@ -76,9 +76,9 @@ export function parseUserCommand(
         // Coauthor: coauthor "123", "456"
         const coauthorMatch = line.match(/^coauthor\s+(.+)$/i);
         if (coauthorMatch) {
-            const matches = Array.from(coauthorMatch[1].matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g)).map(
-                (m: any) => m[1],
-            );
+            const matches = Array.from(
+                coauthorMatch[1].matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g),
+            ).map((m: any) => m[1]);
             coauthors.push(...matches);
             i++;
             continue;
@@ -93,13 +93,25 @@ export function parseUserCommand(
                 roles = metaRest
                     .substring(6)
                     .split(',')
-                    .map((r) => r.trim().replace(/^<@&?(\d+)>$/, '$1').replace(/^["']|["']$/g, '').trim())
+                    .map((r) =>
+                        r
+                            .trim()
+                            .replace(/^<@&?(\d+)>$/, '$1')
+                            .replace(/^["']|["']$/g, '')
+                            .trim(),
+                    )
                     .filter((r) => r.length > 0);
             } else if (metaRest.toLowerCase().startsWith('channels ')) {
                 channels = metaRest
                     .substring(9)
                     .split(',')
-                    .map((c) => c.trim().replace(/^<#(\d+)>$/, '$1').replace(/^["']|["']$/g, '').trim())
+                    .map((c) =>
+                        c
+                            .trim()
+                            .replace(/^<#(\d+)>$/, '$1')
+                            .replace(/^["']|["']$/g, '')
+                            .trim(),
+                    )
                     .filter((c) => c.length > 0);
             } else if (metaRest.toLowerCase().startsWith('enabled ')) {
                 enabled = metaRest.substring(8).trim().toLowerCase() === 'true';
@@ -179,7 +191,10 @@ export function parseUserCommand(
 
         // Standard actions (say, reply, whisper, send, memorize)
         let fullActionLine = line;
-        if (fullActionLine.includes('"""') && (fullActionLine.match(/"""/g) || []).length % 2 !== 0) {
+        if (
+            fullActionLine.includes('"""') &&
+            (fullActionLine.match(/"""/g) || []).length % 2 !== 0
+        ) {
             let multilineAcc = fullActionLine;
             i++;
             while (i < lines.length) {

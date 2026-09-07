@@ -112,7 +112,11 @@ export function checkThresholdCrossed(
 ): LarpTier | null {
     // Check standard tiers
     for (const tier of DEFAULT_LARP_TIERS) {
-        if (prevCount < tier.threshold && newCount >= tier.threshold && tier.threshold > highestTierTriggered) {
+        if (
+            prevCount < tier.threshold &&
+            newCount >= tier.threshold &&
+            tier.threshold > highestTierTriggered
+        ) {
             return tier;
         }
     }
@@ -120,7 +124,11 @@ export function checkThresholdCrossed(
     // Check dynamic higher tiers (> 100)
     if (newCount > 100) {
         const dynamicThreshold = Math.floor(newCount / 50) * 50;
-        if (dynamicThreshold > 100 && prevCount < dynamicThreshold && dynamicThreshold > highestTierTriggered) {
+        if (
+            dynamicThreshold > 100 &&
+            prevCount < dynamicThreshold &&
+            dynamicThreshold > highestTierTriggered
+        ) {
             return calculatePenaltyForThreshold(dynamicThreshold);
         }
     }
@@ -176,7 +184,11 @@ export function getOrCreateGuildState(state: LarpJarState, guildId: string): Lar
     return state.guilds[guildId];
 }
 
-export function getLarpUser(guildId: string, userId: string, filePath: string = defaultDataFilePath): LarpUserData {
+export function getLarpUser(
+    guildId: string,
+    userId: string,
+    filePath: string = defaultDataFilePath,
+): LarpUserData {
     const state = loadLarpJarState(filePath);
     const guildState = getOrCreateGuildState(state, guildId);
 
@@ -356,13 +368,22 @@ export async function sendLarpJarAuditAlert(
         const remainingUnix = Math.floor(bannedUntil / 1000);
         const embed = new EmbedBuilder()
             .setTitle('🏺 Larp Jar: Silenced User Attempt')
-            .setDescription('A member attempted to say a larp-related word while banned from larping.')
+            .setDescription(
+                'A member attempted to say a larp-related word while banned from larping.',
+            )
             .setColor(Colors.Gold)
             .addFields(
-                { name: 'User', value: `<@${user.id}> (${user.tag || user.username})`, inline: true },
+                {
+                    name: 'User',
+                    value: `<@${user.id}> (${user.tag || user.username})`,
+                    inline: true,
+                },
                 { name: 'Channel', value: `<#${channelId}>`, inline: true },
                 { name: 'Jar Balance', value: `🪙 **${count}** larps`, inline: true },
-                { name: 'Silenced Until', value: `<t:${remainingUnix}:f> (<t:${remainingUnix}:R>)` },
+                {
+                    name: 'Silenced Until',
+                    value: `<t:${remainingUnix}:f> (<t:${remainingUnix}:R>)`,
+                },
                 { name: 'Deleted Content', value: content.slice(0, 1000) || '*No content*' },
             )
             .setTimestamp();

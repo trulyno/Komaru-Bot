@@ -64,7 +64,10 @@ export class TriggerPool {
         const newTriggers = [trigger.value.toLowerCase(), ...aliases.map((a) => a.toLowerCase())];
 
         for (const cmd of this.commands.values()) {
-            if (currentCommandName && cmd.metadata.name.toLowerCase() === currentCommandName.toLowerCase()) {
+            if (
+                currentCommandName &&
+                cmd.metadata.name.toLowerCase() === currentCommandName.toLowerCase()
+            ) {
                 continue;
             }
 
@@ -103,18 +106,34 @@ export class TriggerPool {
                     const chName = (message.channel?.name || '').toLowerCase();
                     const chId = (message.channel?.id || '').toLowerCase();
                     const allowed = cmd.metadata.channels.some((rawC) => {
-                        const c = rawC.replace(/^<#(\d+)>$/, '$1').replace(/^["']|["']$/g, '').trim().toLowerCase();
+                        const c = rawC
+                            .replace(/^<#(\d+)>$/, '$1')
+                            .replace(/^["']|["']$/g, '')
+                            .trim()
+                            .toLowerCase();
                         return c === chName || c === chId;
                     });
                     if (!allowed) return false;
                 }
 
                 // Meta Roles check
-                if (cmd.metadata.roles && cmd.metadata.roles.length > 0 && message.member?.roles?.cache) {
-                    const userRoleNames = message.member.roles.cache.map((r: any) => (r.name || '').toLowerCase());
-                    const userRoleIds = message.member.roles.cache.map((r: any) => (r.id || '').toLowerCase());
+                if (
+                    cmd.metadata.roles &&
+                    cmd.metadata.roles.length > 0 &&
+                    message.member?.roles?.cache
+                ) {
+                    const userRoleNames = message.member.roles.cache.map((r: any) =>
+                        (r.name || '').toLowerCase(),
+                    );
+                    const userRoleIds = message.member.roles.cache.map((r: any) =>
+                        (r.id || '').toLowerCase(),
+                    );
                     const allowed = cmd.metadata.roles.some((rawR) => {
-                        const r = rawR.replace(/^<@&?(\d+)>$/, '$1').replace(/^["']|["']$/g, '').trim().toLowerCase();
+                        const r = rawR
+                            .replace(/^<@&?(\d+)>$/, '$1')
+                            .replace(/^["']|["']$/g, '')
+                            .trim()
+                            .toLowerCase();
                         return userRoleNames.includes(r) || userRoleIds.includes(r);
                     });
                     if (!allowed) return false;
@@ -130,7 +149,9 @@ export class TriggerPool {
                     const lastUsed = cmdCooldowns.get(authorId) || 0;
                     const now = Date.now();
                     if (now - lastUsed < cooldownSec * 1000) {
-                        const remaining = ((cooldownSec * 1000 - (now - lastUsed)) / 1000).toFixed(1);
+                        const remaining = ((cooldownSec * 1000 - (now - lastUsed)) / 1000).toFixed(
+                            1,
+                        );
                         await message.reply({
                             content: `⏳ Command **${cmd.metadata.name}** is on cooldown. Please wait ${remaining}s.`,
                             allowedMentions: { parse: [] },
@@ -201,20 +222,27 @@ export class TriggerPool {
 
         const now = new Date();
         const userDisplayName =
-            message.member?.displayName || message.author?.username || message.author?.tag || 'User';
+            message.member?.displayName ||
+            message.author?.displayName ||
+            message.author?.globalName ||
+            message.author?.username ||
+            message.author?.tag ||
+            'User';
 
         const ctx: EvaluationContext = {
             userMention: userDisplayName, // Non-pinging nickname / display name
-            username: message.author.username || message.author.tag || 'User',
-            userId: message.author.id,
+            username: message.author?.username || message.author?.tag || 'User',
+            userId: message.author?.id || '',
             channelName: message.channel?.name || 'chat',
             serverName: message.guild?.name || 'DM',
             timeStr: now.toISOString().split('T')[1].slice(0, 8),
             dateStr: now.toISOString().split('T')[0],
-            input: message.content,
+            input: message.content || '',
             matchGroups,
             variables,
             varAliases: aliases,
+            resolveUserDisplayName: (id: string) => resolveUserDisplayNameSync(id, message),
+            resolveRoleName: (id: string) => resolveRoleName(id, message),
         };
 
         await this.runActionSequence(cmd.actions, cmd, message, ctx);
@@ -237,7 +265,8 @@ export class TriggerPool {
                     break;
                 }
                 case 'say': {
-                    const strContent = String(this.evaluateActionValue(action.value, ctx));
+                    let strContent = String(this.evaluateActionValue(action.value, ctx));
+                    strContent = await sanitizeMentions(strContent, message);
                     if (strContent) {
                         await message.channel.send({
                             content: strContent,
@@ -247,7 +276,8 @@ export class TriggerPool {
                     break;
                 }
                 case 'reply': {
-                    const strContent = String(this.evaluateActionValue(action.value, ctx));
+                    let strContent = String(this.evaluateActionValue(action.value, ctx));
+                    strContent = await sanitizeMentions(strContent, message);
                     if (strContent) {
                         await message.reply({
                             content: strContent,
@@ -257,7 +287,8 @@ export class TriggerPool {
                     break;
                 }
                 case 'whisper': {
-                    const strContent = String(this.evaluateActionValue(action.value, ctx));
+                    let strContent = String(this.evaluateActionValue(action.value, ctx));
+                    strContent = await sanitizeMentions(strContent, message);
                     if (strContent) {
                         const isInteraction =
                             typeof message.isChatInputCommand === 'function' ||
@@ -278,7 +309,9 @@ export class TriggerPool {
                                     });
                                 }
                             } catch (err: any) {
-                                logger.error(`Could not send ephemeral whisper interaction: ${err}`);
+                                logger.error(
+                                    `Could not send ephemeral whisper interaction: ${err}`,
+                                );
                             }
                         } else {
                             try {
@@ -287,7 +320,9 @@ export class TriggerPool {
                                     allowedMentions: { parse: [] },
                                 });
                             } catch (dmError: any) {
-                                logger.warn(`Could not send DM whisper to user ${message.author?.id}: ${dmError}`);
+                                logger.warn(
+                                    `Could not send DM whisper to user ${message.author?.id}: ${dmError}`,
+                                );
                                 await message.channel.send({
                                     content: `*(Could not whisper to ${ctx.userMention}: DMs are disabled or blocked in Discord privacy settings)*`,
                                     allowedMentions: { parse: [] },
@@ -305,22 +340,44 @@ export class TriggerPool {
                             files: [mediaItem.path],
                         });
                     } else {
-                        logger.warn(`Media file reference "${fileRef}" not found in command "${cmd.metadata.name}"`);
+                        logger.warn(
+                            `Media file reference "${fileRef}" not found in command "${cmd.metadata.name}"`,
+                        );
                     }
                     break;
                 }
                 case 'embed': {
                     const embedData = action.value as EmbedData;
                     if (embedData) {
-                        const title = embedData.title ? interpolateString(embedData.title, ctx) : undefined;
-                        const description = embedData.description ? interpolateString(embedData.description, ctx) : undefined;
-                        const colorHex = embedData.color ? parseInt(embedData.color.replace('#', ''), 16) : 0x6a5acd;
+                        const rawTitle = embedData.title
+                            ? interpolateString(embedData.title, ctx)
+                            : undefined;
+                        const rawDescription = embedData.description
+                            ? interpolateString(embedData.description, ctx)
+                            : undefined;
+                        const title = rawTitle
+                            ? await sanitizeMentions(rawTitle, message)
+                            : undefined;
+                        const description = rawDescription
+                            ? await sanitizeMentions(rawDescription, message)
+                            : undefined;
+                        const colorHex = embedData.color
+                            ? parseInt(embedData.color.replace('#', ''), 16)
+                            : 0x6a5acd;
 
-                        const fields = (embedData.fields || []).map((f) => ({
-                            name: interpolateString(f.name, ctx),
-                            value: interpolateString(f.value, ctx),
-                            inline: f.inline ?? false,
-                        }));
+                        const fields = await Promise.all(
+                            (embedData.fields || []).map(async (f) => ({
+                                name: await sanitizeMentions(
+                                    interpolateString(f.name, ctx),
+                                    message,
+                                ),
+                                value: await sanitizeMentions(
+                                    interpolateString(f.value, ctx),
+                                    message,
+                                ),
+                                inline: f.inline ?? false,
+                            })),
+                        );
 
                         await message.channel.send({
                             embeds: [
@@ -396,4 +453,93 @@ export class TriggerPool {
                 return '';
         }
     }
+}
+
+export function resolveUserDisplayNameSync(userId: string, message?: any): string {
+    if (message?.author?.id === userId) {
+        return (
+            message.member?.displayName ||
+            message.author?.displayName ||
+            message.author?.globalName ||
+            message.author?.username ||
+            'User'
+        );
+    }
+    const member =
+        message?.guild?.members?.cache?.get?.(userId) || message?.mentions?.members?.get?.(userId);
+    if (member?.displayName) {
+        return member.displayName;
+    }
+    const user =
+        message?.mentions?.users?.get?.(userId) || message?.client?.users?.cache?.get?.(userId);
+    if (user) {
+        return user.displayName || user.globalName || user.username || 'User';
+    }
+    return `User_${userId}`;
+}
+
+export async function resolveUserDisplayName(userId: string, message?: any): Promise<string> {
+    const syncName = resolveUserDisplayNameSync(userId, message);
+    if (syncName && syncName !== `User_${userId}`) {
+        return syncName;
+    }
+
+    if (message?.guild?.members?.fetch) {
+        try {
+            const member = await message.guild.members.fetch(userId);
+            if (member?.displayName) {
+                return member.displayName;
+            }
+        } catch {
+            // Ignore fetch error
+        }
+    }
+
+    if (message?.client?.users?.fetch) {
+        try {
+            const user = await message.client.users.fetch(userId);
+            if (user) {
+                return user.displayName || user.globalName || user.username || 'User';
+            }
+        } catch {
+            // Ignore fetch error
+        }
+    }
+
+    return syncName || `User_${userId}`;
+}
+
+export function resolveRoleName(roleId: string, message?: any): string {
+    const role =
+        message?.guild?.roles?.cache?.get?.(roleId) || message?.mentions?.roles?.get?.(roleId);
+    if (role?.name) {
+        return role.name;
+    }
+    return `Role_${roleId}`;
+}
+
+export async function sanitizeMentions(text: string, message?: any): Promise<string> {
+    if (!text) return '';
+
+    let sanitized = text.replace(/@everyone/g, '@\u200beveryone').replace(/@here/g, '@\u200bhere');
+
+    const userMentionRegex = /<@!?(\d+)>/g;
+    const matches = Array.from(sanitized.matchAll(userMentionRegex));
+    for (const match of matches) {
+        const fullTag = match[0];
+        const userId = match[1];
+        const displayName = await resolveUserDisplayName(userId, message);
+        sanitized = sanitized.split(fullTag).join(displayName);
+    }
+
+    const roleMentionRegex = /<@&(\d+)>/g;
+    const roleMatches = Array.from(sanitized.matchAll(roleMentionRegex));
+    for (const match of roleMatches) {
+        const fullTag = match[0];
+        const roleId = match[1];
+        const roleName = resolveRoleName(roleId, message);
+        sanitized = sanitized.split(fullTag).join(roleName);
+    }
+
+    return sanitized;
 }

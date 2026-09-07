@@ -244,7 +244,7 @@ export async function handleThreadTemplate(thread: AnyThreadChannel): Promise<vo
         const embed = new EmbedBuilder()
             .setTitle('⚠️ Template Missing or Incomplete')
             .setDescription(
-                `Your ${isIssueThread ? 'issue reporting' : 'suggestion'} post appears to be missing some required template fields. ${(isIssueThread ? 'Without the template, your issue report might not contain all the necessary information about how we could fix this issue or help you.' : 'If you don\'t follow the template, your post might be ignored.')}`,
+                `Your ${isIssueThread ? 'issue reporting' : 'suggestion'} post appears to be missing some required template fields. ${isIssueThread ? 'Without the template, your issue report might not contain all the necessary information about how we could fix this issue or help you.' : "If you don't follow the template, your post might be ignored."}`,
             )
             .setColor(Colors.Red);
 

@@ -219,7 +219,10 @@ export function formatMember(member: ParsedMember, coefficient: number): string 
     return `${prefix}${member.formula} ${suffix}`;
 }
 
-export function formatEquationWithCatalysts(parsed: ParsedEquation, coefficients: number[]): string {
+export function formatEquationWithCatalysts(
+    parsed: ParsedEquation,
+    coefficients: number[],
+): string {
     const activeCoefficients = coefficients.slice(
         0,
         parsed.reactants.length + parsed.products.length,

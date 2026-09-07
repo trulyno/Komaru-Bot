@@ -12,6 +12,8 @@ export interface EvaluationContext {
     matchGroups: string[];
     variables: Array<string | number>;
     varAliases?: Record<string, number>;
+    resolveUserDisplayName?: (userId: string) => string;
+    resolveRoleName?: (roleId: string) => string;
 }
 
 export function evaluateCalc(
@@ -275,6 +277,29 @@ export function interpolateString(template: string, ctx: EvaluationContext): str
         return String(evaluateRandom(parseInt(minStr, 10), parseInt(maxStr, 10)));
     });
 
+    // Prevent user mentions (pinging a user) by replacing with the user's display name
+    result = result.replace(/<@!?(\d+)>/g, (_, userId) => {
+        if (ctx.resolveUserDisplayName) {
+            return ctx.resolveUserDisplayName(userId);
+        }
+        if (ctx.userId === userId) {
+            return ctx.userMention || ctx.username;
+        }
+        return `User_${userId}`;
+    });
+
+    // Prevent role mentions by replacing with role name
+    result = result.replace(/<@&(\d+)>/g, (_, roleId) => {
+        if (ctx.resolveRoleName) {
+            return ctx.resolveRoleName(roleId);
+        }
+        return `Role_${roleId}`;
+    });
+
+    // Sanitize mass mentions
+    result = result.replace(/@everyone/g, '@\u200beveryone');
+    result = result.replace(/@here/g, '@\u200bhere');
+
     return result;
 }
 
@@ -309,13 +334,19 @@ export function evaluateBooleanExpr(
     // Handle logical OR at top level
     const orParts = splitTopLevel(evalStr, ' or ');
     if (orParts) {
-        return evaluateBooleanExpr(orParts[0], ctx, extraItem) || evaluateBooleanExpr(orParts[1], ctx, extraItem);
+        return (
+            evaluateBooleanExpr(orParts[0], ctx, extraItem) ||
+            evaluateBooleanExpr(orParts[1], ctx, extraItem)
+        );
     }
 
     // Handle logical AND at top level
     const andParts = splitTopLevel(evalStr, ' and ');
     if (andParts) {
-        return evaluateBooleanExpr(andParts[0], ctx, extraItem) && evaluateBooleanExpr(andParts[1], ctx, extraItem);
+        return (
+            evaluateBooleanExpr(andParts[0], ctx, extraItem) &&
+            evaluateBooleanExpr(andParts[1], ctx, extraItem)
+        );
     }
 
     // Handle logical NOT
@@ -373,10 +404,7 @@ export function evaluateBooleanExpr(
 
 function stripOuterParens(str: string): string {
     let s = str.trim();
-    while (
-        (s.startsWith('{') && s.endsWith('}')) ||
-        (s.startsWith('(') && s.endsWith(')'))
-    ) {
+    while ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('(') && s.endsWith(')'))) {
         let depth = 0;
         let outerMatched = false;
         for (let i = 0; i < s.length; i++) {
@@ -426,10 +454,7 @@ function splitTwo(str: string, delimiter: string): [string, string] {
 
 function cleanVal(str: string): string {
     let s = str.trim();
-    if (
-        (s.startsWith('"') && s.endsWith('"')) ||
-        (s.startsWith("'") && s.endsWith("'"))
-    ) {
+    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
         s = s.slice(1, -1);
     }
     return s;

@@ -64,9 +64,7 @@ export function canManageGithubPrefixes(member: any): boolean {
         config.env.moderationModeratorRoleId ??
             config.env.moderationModeratorRoleName ??
             'Moderator',
-        config.env.moderationAdminRoleId ??
-            config.env.moderationAdminRoleName ??
-            'Administrator',
+        config.env.moderationAdminRoleId ?? config.env.moderationAdminRoleName ?? 'Administrator',
     ];
 
     return member.roles?.cache?.some((role: any) => {

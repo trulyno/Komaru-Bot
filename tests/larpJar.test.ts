@@ -232,7 +232,11 @@ async function runLarpJarTests(): Promise<void> {
 
         // Even after handleMessageDeletion runs, it should not have sent an audit log
         await handleMessageDeletion(mockMessage);
-        assert.strictEqual(auditSent, false, 'Audit log should not be sent for bot-deleted message');
+        assert.strictEqual(
+            auditSent,
+            false,
+            'Audit log should not be sent for bot-deleted message',
+        );
     });
 
     await runTestCase('message generator formatting and ping safety', () => {

@@ -30,11 +30,7 @@ const moduleDefinition = {
                 await interaction.deferReply({ ephemeral: true });
                 try {
                     const guildId = config.env.discordGuildId;
-                    await cleanAndSyncCommands(
-                        config.env.discordToken,
-                        client?.user?.id,
-                        guildId,
-                    );
+                    await cleanAndSyncCommands(config.env.discordToken, client?.user?.id, guildId);
                     await interaction.editReply('Slash commands cleaned and re-registered.');
                 } catch (error) {
                     logger.error(`Failed to clean and re-register commands: ${error}`);

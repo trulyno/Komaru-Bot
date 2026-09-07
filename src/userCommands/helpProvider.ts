@@ -14,7 +14,8 @@ export function getHelpTopicEmbed(topicRaw?: string): HelpEmbed {
             return {
                 title: '⚡ User Command System: Quick Commands (qt)',
                 color: 0x3498db,
-                description: 'Quickly define simple text or file response commands without full boilerplate.',
+                description:
+                    'Quickly define simple text or file response commands without full boilerplate.',
                 fields: [
                     {
                         name: 'Shorthand Syntax',
@@ -37,7 +38,8 @@ export function getHelpTopicEmbed(topicRaw?: string): HelpEmbed {
             return {
                 title: '🎯 User Command System: Triggers & Variables',
                 color: 0x2ecc71,
-                description: 'Triggers activate user commands, and variables let you build dynamic outputs.',
+                description:
+                    'Triggers activate user commands, and variables let you build dynamic outputs.',
                 fields: [
                     {
                         name: 'Trigger Types',
@@ -63,7 +65,8 @@ export function getHelpTopicEmbed(topicRaw?: string): HelpEmbed {
             return {
                 title: '🎨 User Command System: Rich Embeds',
                 color: 0x9b59b6,
-                description: 'Send beautifully formatted Discord embeds directly from user commands.',
+                description:
+                    'Send beautifully formatted Discord embeds directly from user commands.',
                 fields: [
                     {
                         name: 'Embed Block Syntax',
@@ -170,7 +173,8 @@ export function getHelpTopicEmbed(topicRaw?: string): HelpEmbed {
             return {
                 title: '📖 Komaru User Defined Command System: Guide',
                 color: 0x5865f2,
-                description: 'Welcome to the User Defined Command System! Define your own custom bot commands directly in chat using natural syntax.',
+                description:
+                    'Welcome to the User Defined Command System! Define your own custom bot commands directly in chat using natural syntax.',
                 fields: [
                     {
                         name: '🚀 Quick Start',

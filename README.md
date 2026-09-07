@@ -17,4 +17,3 @@
 - `npm run build` - compile the TypeScript project
 - `npm run lint` - run ESLint
 - `npm run format` - format files with Prettier
-

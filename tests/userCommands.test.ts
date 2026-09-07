@@ -49,7 +49,10 @@ async function runTests() {
         // Test non-pinging nickname
         assert.strictEqual(interpolateString('Hello {user}!', ctx), 'Hello TestUserNickname!');
         // Test system context variables
-        assert.strictEqual(interpolateString('Channel: {channel}, Server: {server}', ctx), 'Channel: general, Server: KomaruServer');
+        assert.strictEqual(
+            interpolateString('Channel: {channel}, Server: {server}', ctx),
+            'Channel: general, Server: KomaruServer',
+        );
         // Test {input}
         assert.strictEqual(interpolateString('Input was {input}', ctx), 'Input was !rps rock');
         // Test {match [1]}
@@ -91,8 +94,10 @@ you reply {choice {"Without a doubt", "It is certain", "Yes"}}
         assert.strictEqual((parsed8Ball.actions[0].value as any).type, 'choice');
     });
 
-    runTestCase('user command parser (Regex, Vars, Aliases, Meta, Embed, Ponder, Scratch Pole)', () => {
-        const rawComplex = `
+    runTestCase(
+        'user command parser (Regex, Vars, Aliases, Meta, Embed, Ponder, Scratch Pole)',
+        () => {
+            const rawComplex = `
 name "pingpong"
 alias "p", "pong"
 coauthor "user_789"
@@ -121,20 +126,21 @@ scratch pole {input}
 |> upper
 |> save [0]
 `;
-        const parsedComplex = parseUserCommand(rawComplex, 'user_456');
-        assert.strictEqual(parsedComplex.metadata.name, 'pingpong');
-        assert.strictEqual(parsedComplex.metadata.cooldown, 10);
-        assert.deepStrictEqual(parsedComplex.metadata.roles, ['vip', 'admin']);
-        assert.deepStrictEqual(parsedComplex.metadata.channels, ['general']);
-        assert.strictEqual(parsedComplex.metadata.enabled, true);
-        assert.deepStrictEqual(parsedComplex.aliases, ['p', 'pong']);
-        assert.deepStrictEqual(parsedComplex.coauthors, ['user_789']);
+            const parsedComplex = parseUserCommand(rawComplex, 'user_456');
+            assert.strictEqual(parsedComplex.metadata.name, 'pingpong');
+            assert.strictEqual(parsedComplex.metadata.cooldown, 10);
+            assert.deepStrictEqual(parsedComplex.metadata.roles, ['vip', 'admin']);
+            assert.deepStrictEqual(parsedComplex.metadata.channels, ['general']);
+            assert.strictEqual(parsedComplex.metadata.enabled, true);
+            assert.deepStrictEqual(parsedComplex.aliases, ['p', 'pong']);
+            assert.deepStrictEqual(parsedComplex.coauthors, ['user_789']);
 
-        assert.strictEqual(parsedComplex.actions[0].type, 'memorize');
-        assert.strictEqual(parsedComplex.actions[1].type, 'embed');
-        assert.strictEqual(parsedComplex.actions[2].type, 'ponder');
-        assert.strictEqual(parsedComplex.actions[3].type, 'pipeline');
-    });
+            assert.strictEqual(parsedComplex.actions[0].type, 'memorize');
+            assert.strictEqual(parsedComplex.actions[1].type, 'embed');
+            assert.strictEqual(parsedComplex.actions[2].type, 'ponder');
+            assert.strictEqual(parsedComplex.actions[3].type, 'pipeline');
+        },
+    );
 
     runTestCase('user command boolean expressions', () => {
         const ctx: EvaluationContext = {
@@ -152,7 +158,10 @@ scratch pole {input}
 
         assert.strictEqual(evaluateBooleanExpr('input is "rock"', ctx), true);
         assert.strictEqual(evaluateBooleanExpr('input is not "paper"', ctx), true);
-        assert.strictEqual(evaluateBooleanExpr('(input is "rock") and not (input is "paper")', ctx), true);
+        assert.strictEqual(
+            evaluateBooleanExpr('(input is "rock") and not (input is "paper")', ctx),
+            true,
+        );
 
         // Test match [1] evaluation
         const matchCtx: EvaluationContext = {
@@ -264,6 +273,100 @@ you reply "Hello {user}!"
 
         fs.rmSync(testDir, { recursive: true, force: true });
         fs.rmSync(configDir, { recursive: true, force: true });
+    });
+
+    runTestCase('user command mention prevention & display name replacement', async () => {
+        const testDir = path.resolve(__dirname, '../data/test_user_commands_mention_v2');
+        if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+
+        const storage = new UserCommandStorage(testDir);
+        const rawCmd = `
+name "mentionTest"
+when someone says /!testmention(.*)/
+you say "Direct ping <@999> and nickname ping <@!888> and input was {input} and role <@&777> and @everyone and @here"
+`;
+        const parsed = parseUserCommand(rawCmd, 'author_1');
+        storage.saveCommand(parsed, rawCmd);
+
+        const triggerPool = new TriggerPool(storage);
+        triggerPool.loadFromStorage();
+
+        let sentPayload: any = null;
+        const mockMsg = {
+            content: '!testmention <@999>',
+            author: { id: 'author_1', username: 'AuthorUser' },
+            member: { displayName: 'AuthorNick' },
+            channel: {
+                name: 'general',
+                send: async (payload: any) => {
+                    sentPayload = payload;
+                },
+            },
+            guild: {
+                name: 'TestGuild',
+                members: {
+                    cache: new Map([
+                        ['999', { displayName: 'TargetNineNineNine' }],
+                        ['888', { displayName: 'TargetEightEightEight' }],
+                    ]),
+                },
+                roles: {
+                    cache: new Map([['777', { name: 'AdminRole' }]]),
+                },
+            },
+        };
+
+        const handled = await triggerPool.handleMessage(mockMsg);
+        assert.strictEqual(handled, true);
+        assert.ok(sentPayload);
+        assert.deepStrictEqual(sentPayload.allowedMentions, { parse: [] });
+
+        // Ensure user mentions replaced with display names
+        assert.ok(!sentPayload.content.includes('<@999>'), 'Should not contain raw <@999>');
+        assert.ok(!sentPayload.content.includes('<@!888>'), 'Should not contain raw <@!888>');
+        assert.ok(sentPayload.content.includes('Direct ping TargetNineNineNine'));
+        assert.ok(sentPayload.content.includes('nickname ping TargetEightEightEight'));
+        assert.ok(sentPayload.content.includes('input was !testmention TargetNineNineNine'));
+        assert.ok(sentPayload.content.includes('role AdminRole'));
+        assert.ok(!sentPayload.content.includes('@everyone'), 'Should sanitize @everyone');
+        assert.ok(sentPayload.content.includes('@\u200beveryone'));
+
+        // Test embed mention prevention
+        const embedCmdRaw = `
+name "embedMentionTest"
+when someone says "!embedmention"
+you embed {
+    title "Ping <@999>"
+    description "Desc for <@!888>"
+    field "Target" - "<@999>"
+}
+`;
+        const embedParsed = parseUserCommand(embedCmdRaw, 'author_1');
+        storage.saveCommand(embedParsed, embedCmdRaw);
+        triggerPool.loadFromStorage();
+
+        let embedSentPayload: any = null;
+        const embedMockMsg = {
+            ...mockMsg,
+            content: '!embedmention',
+            channel: {
+                ...mockMsg.channel,
+                send: async (payload: any) => {
+                    embedSentPayload = payload;
+                },
+            },
+        };
+
+        const embedHandled = await triggerPool.handleMessage(embedMockMsg);
+        assert.strictEqual(embedHandled, true);
+        assert.ok(embedSentPayload);
+        assert.deepStrictEqual(embedSentPayload.allowedMentions, { parse: [] });
+        const embed = embedSentPayload.embeds[0];
+        assert.strictEqual(embed.title, 'Ping TargetNineNineNine');
+        assert.strictEqual(embed.description, 'Desc for TargetEightEightEight');
+        assert.strictEqual(embed.fields[0].value, 'TargetNineNineNine');
+
+        fs.rmSync(testDir, { recursive: true, force: true });
     });
 
     runTestCase('user command registry options serialization', () => {

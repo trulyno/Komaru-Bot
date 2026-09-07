@@ -81,7 +81,9 @@ export const respondToKomaruMention = async (message: any): Promise<void> => {
             }
         } else if (weightedActionType === 'text_response') {
             const response =
-                catConfig.komaru_responses[Math.floor(Math.random() * catConfig.komaru_responses.length)];
+                catConfig.komaru_responses[
+                    Math.floor(Math.random() * catConfig.komaru_responses.length)
+                ];
             await message.reply({ content: response, allowedMentions: { repliedUser: false } });
         } else if (weightedActionType === 'gif_response') {
             if (catConfig.komaru_gifs.length > 0) {
@@ -105,7 +107,9 @@ export const respondToKomaruMention = async (message: any): Promise<void> => {
             }
 
             const response =
-                catConfig.komaru_responses[Math.floor(Math.random() * catConfig.komaru_responses.length)];
+                catConfig.komaru_responses[
+                    Math.floor(Math.random() * catConfig.komaru_responses.length)
+                ];
             await message.reply({ content: response, allowedMentions: { repliedUser: false } });
         }
     } catch (error) {
@@ -120,7 +124,9 @@ export const respondToBingusMention = async (message: any): Promise<void> => {
             const gifUrl =
                 catConfig.bingus_gifs[Math.floor(Math.random() * catConfig.bingus_gifs.length)];
             const responseText =
-                catConfig.bingus_responses[Math.floor(Math.random() * catConfig.bingus_responses.length)];
+                catConfig.bingus_responses[
+                    Math.floor(Math.random() * catConfig.bingus_responses.length)
+                ];
             const embed = new EmbedBuilder()
                 .setDescription(responseText)
                 .setImage(gifUrl)
@@ -135,7 +141,9 @@ export const respondToBingusMention = async (message: any): Promise<void> => {
         }
 
         const response =
-            catConfig.bingus_responses[Math.floor(Math.random() * catConfig.bingus_responses.length)];
+            catConfig.bingus_responses[
+                Math.floor(Math.random() * catConfig.bingus_responses.length)
+            ];
         await message.reply({ content: response, allowedMentions: { repliedUser: false } });
     } catch (error) {
         logger.error(`Error responding to Bingus mention: ${error}`);

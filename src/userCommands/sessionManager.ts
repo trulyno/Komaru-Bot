@@ -125,7 +125,10 @@ export class SessionManager {
                 cmdJson.aliases,
                 cmdJson.metadata.name,
             );
-            if (conflictingCmd && conflictingCmd.metadata.name.toLowerCase() !== cmdJson.metadata.name.toLowerCase()) {
+            if (
+                conflictingCmd &&
+                conflictingCmd.metadata.name.toLowerCase() !== cmdJson.metadata.name.toLowerCase()
+            ) {
                 await message.reply(
                     `❌ Cannot register command **${cmdJson.metadata.name}**: trigger or alias \`${cmdJson.trigger.value}\` is already used by command **${conflictingCmd.metadata.name}**.`,
                 );

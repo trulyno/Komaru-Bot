@@ -21,7 +21,8 @@ import {
 
 const moduleDefinition = {
     name: 'larpJar',
-    description: 'Tracks and fines users for saying larp variants, with dynamic escalating silences',
+    description:
+        'Tracks and fines users for saying larp variants, with dynamic escalating silences',
     register: async (client: any) => {
         client.on('messageCreate', async (message: any) => {
             try {
@@ -131,7 +132,8 @@ const moduleDefinition = {
                 const { users, totalLarps } = getGuildLeaderboard(interaction.guild.id, 10);
                 if (users.length === 0) {
                     await interaction.reply({
-                        content: '🪙 The Larp Jar is sparkling clean and empty! Nobody has larped yet.',
+                        content:
+                            '🪙 The Larp Jar is sparkling clean and empty! Nobody has larped yet.',
                     });
                     return;
                 }
@@ -183,7 +185,8 @@ const moduleDefinition = {
                 const targetMember = await interaction.guild.members
                     .fetch(targetUser.id)
                     .catch(() => null);
-                const displayName = targetMember?.displayName || targetUser.displayName || targetUser.username;
+                const displayName =
+                    targetMember?.displayName || targetUser.displayName || targetUser.username;
 
                 const larpUser = getLarpUser(interaction.guild.id, targetUser.id);
                 const silenced = isUserSilenced(larpUser);

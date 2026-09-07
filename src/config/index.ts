@@ -27,17 +27,8 @@ export interface AuditLogConfig {
 }
 
 export const DEFAULT_TEMPLATE_CONFIG: TemplateConfig = {
-    issueTemplateFields: [
-        'modpack version',
-        'is on server',
-        'modifications done',
-        'description',
-    ],
-    suggestionTemplateFields: [
-        'description',
-        'how would it fit with start',
-        'possible issues',
-    ],
+    issueTemplateFields: ['modpack version', 'is on server', 'modifications done', 'description'],
+    suggestionTemplateFields: ['description', 'how would it fit with start', 'possible issues'],
     modpackVersions: [
         'Theta 1 Hotfix 3',
         'Theta 1 Hotfix 2',
