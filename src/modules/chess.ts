@@ -24,10 +24,43 @@ import {
     resignGame,
 } from '../services/chessService';
 
-const moduleDefinition = {
+import { config } from '../config';
+import { BotModule } from '../moduleLoader';
+
+const moduleDefinition: BotModule = {
     name: 'chess',
     description:
         'Play 2-player chess matches using chess notation with interactive helpers and rule validation',
+    help: {
+        summary: '2-player interactive chess minigame with SAN notation and leaderboards',
+        description:
+            'Challenge players to a game of chess, make moves using algebraic notation (!m e4 or /chess action:move), review legal moves, and climb server Elo leaderboards.',
+        usage: '/chess <action> | /chess_stats | /chess_leaderboard | !m <notation>',
+        commands: [
+            {
+                name: 'chess',
+                description: 'Start a chess game, make a move, resign, offer draw, or view board',
+                usage: '/chess <action:challenge|move|board|legal_moves|draw|resign|guide> [opponent:user] [notation:string]',
+            },
+            {
+                name: 'chess_stats',
+                description: 'View player chess stats, Elo rating, and win/loss records',
+                usage: '/chess_stats [user:user]',
+            },
+            {
+                name: 'chess_leaderboard',
+                description: 'View the server chess Elo rating leaderboard',
+                usage: '/chess_leaderboard [limit:number]',
+            },
+        ],
+        examples: [
+            '/chess action:challenge opponent:@Friend',
+            '/chess action:move notation:e4',
+            '!m Nf3',
+            '/chess_stats',
+            '/chess_leaderboard',
+        ],
+    },
     register: async (client: any, context?: any) => {
         // Register slash command /chess
         commandRegistry.register({
@@ -447,6 +480,16 @@ const moduleDefinition = {
             try {
                 if (!interaction || !interaction.isButton?.()) return;
 
+                if (
+                    !config.modules.isModuleEnabled(
+                        'chess',
+                        interaction.guildId,
+                        interaction.channelId,
+                    )
+                ) {
+                    return;
+                }
+
                 const customId: string = interaction.customId || '';
 
                 if (customId === 'chess_guide') {
@@ -616,7 +659,12 @@ const moduleDefinition = {
             try {
                 if (!message || message.author?.bot || !message.guild) return;
 
+                if (!config.modules.isModuleEnabled('chess', message.guildId, message.channelId)) {
+                    return;
+                }
+
                 const content = message.content?.trim() ?? '';
+
                 const match = content.match(/^!(?:m|move|chess\s+move)\s+(\S+)/i);
                 if (!match) return;
 

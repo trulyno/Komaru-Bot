@@ -12,14 +12,29 @@ export interface CommandOption {
 export interface CommandDefinition {
     name: string;
     description: string;
+    module?: string;
     options?: CommandOption[];
     handler: (interaction: any) => Promise<void>;
 }
 
 class CommandRegistry {
     private commands = new Map<string, CommandDefinition>();
+    private currentModule?: string;
 
-    register(command: CommandDefinition): void {
+    setCurrentModule(moduleName?: string): void {
+        this.currentModule = moduleName;
+    }
+
+    getCurrentModule(): string | undefined {
+        return this.currentModule;
+    }
+
+    register(command: CommandDefinition, moduleName?: string): void {
+        const assignedModule = command.module ?? moduleName ?? this.currentModule;
+        if (assignedModule) {
+            command.module = assignedModule;
+        }
+
         if (this.commands.has(command.name)) {
             logger.warn(`Command ${command.name} already registered, overwriting`);
         }
@@ -32,6 +47,11 @@ class CommandRegistry {
 
     get(name: string): CommandDefinition | undefined {
         return this.commands.get(name);
+    }
+
+    getByModule(moduleName: string): CommandDefinition[] {
+        const target = moduleName.toLowerCase();
+        return this.getAll().filter((cmd) => cmd.module?.toLowerCase() === target);
     }
 
     toSlashCommandData(): Array<{ name: string; description: string; options?: CommandOption[] }> {

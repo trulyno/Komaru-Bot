@@ -24,9 +24,30 @@ export {
     handleVerificationForm,
 };
 
-const moduleDefinition = {
+import { BotModule } from '../moduleLoader';
+
+const moduleDefinition: BotModule = {
     name: 'verification',
-    description: 'Verification for stargate roles',
+    description: 'Verification for stargate milestone roles',
+    help: {
+        summary: 'Stargate milestone progression verification and role assignment',
+        description:
+            'Allows players to submit completion proof for progression milestones (CSG, ASG, DSG) via modal forms, enabling verifiers to review and award stargate roles.',
+        usage: '/verify | /complete_verification',
+        commands: [
+            {
+                name: 'verify',
+                description: 'Open a modal form to request stargate progression verification',
+                usage: '/verify',
+            },
+            {
+                name: 'complete_verification',
+                description: 'Award a user their verified stargate role',
+                usage: '/complete_verification <user:user> <role:role>',
+            },
+        ],
+        examples: ['/verify', '/complete_verification user:@Player role:@CSG'],
+    },
     register: async (client: any) => {
         commandRegistry.register({
             name: 'verify',
@@ -164,6 +185,16 @@ const moduleDefinition = {
 
         client.on('interactionCreate', async (interaction: any) => {
             if (!interaction.isModalSubmit()) {
+                return;
+            }
+
+            if (
+                !config.modules.isModuleEnabled(
+                    'verification',
+                    interaction.guildId,
+                    interaction.channelId,
+                )
+            ) {
                 return;
             }
 

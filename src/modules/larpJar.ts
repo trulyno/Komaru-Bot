@@ -18,11 +18,37 @@ import {
     sendLarpJarUnsilenceAuditLog,
     unsilenceUser,
 } from '../services/larpJarService';
+import { config } from '../config';
+import { BotModule } from '../moduleLoader';
 
-const moduleDefinition = {
+const moduleDefinition: BotModule = {
     name: 'larpJar',
     description:
         'Tracks and fines users for saying larp variants, with dynamic escalating silences',
+    help: {
+        summary: 'Larp jar swear-jar tracking and escalating timeouts',
+        description:
+            'Detects uses of "larp" and related terms, fines users into the server jar, triggers escalating timeouts, and maintains server leaderboards.',
+        usage: '/larp_leaderboard | /larp_stats | /larp_unsilence',
+        commands: [
+            {
+                name: 'larp_leaderboard',
+                description: 'View top larpers and most fined users in this server',
+                usage: '/larp_leaderboard [limit:number]',
+            },
+            {
+                name: 'larp_stats',
+                description: 'View personal or user larp statistics and fines',
+                usage: '/larp_stats [user:user]',
+            },
+            {
+                name: 'larp_unsilence',
+                description: 'Moderator command to unsilence a penalized user',
+                usage: '/larp_unsilence <user:user>',
+            },
+        ],
+        examples: ['/larp_leaderboard', '/larp_stats', '/larp_unsilence user:@Member'],
+    },
     register: async (client: any) => {
         client.on('messageCreate', async (message: any) => {
             try {
@@ -30,7 +56,18 @@ const moduleDefinition = {
                     return;
                 }
 
+                if (
+                    !config.modules.isModuleEnabled(
+                        'larpJar',
+                        message.guild.id,
+                        message.channel?.id,
+                    )
+                ) {
+                    return;
+                }
+
                 const content = message.content ?? '';
+
                 if (!containsLarpWord(content)) {
                     return;
                 }

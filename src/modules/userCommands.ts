@@ -38,13 +38,65 @@ function extractUserIdFromMention(input: string): string {
     return clean;
 }
 
-const moduleDefinition = {
+import { BotModule } from '../moduleLoader';
+
+const moduleDefinition: BotModule = {
     name: 'userCommands',
     description: 'System for user defined custom natural language commands',
+    help: {
+        summary: 'User-defined custom macro DSL and natural language triggers',
+        description:
+            'Create, test, manage, and execute custom macros using a rich domain-specific language supporting variables, random choices, math calculations, pipes, conditionals, and embeds.',
+        usage: '/cmd_create | /cmd_edit | /cmd_list | /cmd_info | /cmd_delete | /cmd_test',
+        commands: [
+            {
+                name: 'cmd_create',
+                description: 'Open a modal form to create a new user command',
+                usage: '/cmd_create',
+            },
+            {
+                name: 'cmd_edit',
+                description: 'Edit one of your existing user commands',
+                usage: '/cmd_edit <name:string>',
+            },
+            {
+                name: 'cmd_info',
+                description: 'View metadata, triggers, and stats for a user command',
+                usage: '/cmd_info <name:string>',
+            },
+            {
+                name: 'cmd_list',
+                description: 'List user commands with optional author filter',
+                usage: '/cmd_list [user:user]',
+            },
+            {
+                name: 'cmd_delete',
+                description: 'Delete a user command you own',
+                usage: '/cmd_delete <name:string>',
+            },
+            {
+                name: 'cmd_test',
+                description: 'Test evaluating user command DSL script text',
+                usage: '/cmd_test <script:string>',
+            },
+        ],
+        examples: [
+            '/cmd_create',
+            '/cmd_info name:hug',
+            '/cmd_test script:Hello $user{name}! Choice: choice(cat, dog, bird)',
+            '!qt flip -> Tails/Heads',
+        ],
+    },
     register: async (client: any) => {
         // Register message listener for command definition pings, utility text commands, and execution
         client.on('messageCreate', async (message: any) => {
             if (!message || message.author?.bot) return;
+
+            if (
+                !config.modules.isModuleEnabled('userCommands', message.guildId, message.channelId)
+            ) {
+                return;
+            }
 
             try {
                 // 1. Check if user is defining a command or continuing a session

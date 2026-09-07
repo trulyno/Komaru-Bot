@@ -1,6 +1,8 @@
 import { MessageFlags } from 'discord.js';
 import { commandRegistry } from '../commandRegistry';
+import { config } from '../config';
 import { logger } from '../logger';
+import { BotModule } from '../moduleLoader';
 import {
     buildAliasIndex,
     buildTagPaginationEmbed,
@@ -29,13 +31,41 @@ export {
     buildTagPaginationRow,
 };
 
-const moduleDefinition = {
+const moduleDefinition: BotModule = {
     name: 'legacyTags',
     description: 'Read-only legacy tag system with paginated tag browser',
+    help: {
+        summary: 'Browsing and lookup for legacy tags',
+        description:
+            'Allows viewing and paginating through legacy community tags and invoking shortcuts using %t or %tags.',
+        usage: '/tags [page] or %t <tag_name> or %tags',
+        commands: [
+            {
+                name: 'tags',
+                description: 'Browse all legacy tags in alphabetical order',
+                usage: '/tags [page:number]',
+            },
+            {
+                name: 'legacy_tags',
+                description: 'Browse all legacy tags in alphabetical order',
+                usage: '/legacy_tags [page:number]',
+            },
+        ],
+        examples: ['/tags', '/tags page:2', '%t startech', '%tags'],
+    },
     register: async (client: any) => {
         // Message listener for %t and %tags
         client.on('messageCreate', async (message: any) => {
             try {
+                if (
+                    !config.modules.isModuleEnabled(
+                        'legacyTags',
+                        message.guildId,
+                        message.channelId,
+                    )
+                ) {
+                    return;
+                }
                 await handleLegacyTagMessage(message);
             } catch (error) {
                 logger.error(`Error in legacyTags message listener: ${error}`);
@@ -104,6 +134,16 @@ const moduleDefinition = {
         client.on('interactionCreate', async (interaction: any) => {
             try {
                 if (!interaction.isButton?.()) {
+                    return;
+                }
+
+                if (
+                    !config.modules.isModuleEnabled(
+                        'legacyTags',
+                        interaction.guildId,
+                        interaction.channelId,
+                    )
+                ) {
                     return;
                 }
 

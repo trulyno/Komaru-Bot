@@ -221,9 +221,40 @@ function isMainGuild(guildId: string): boolean {
     return Boolean(config.env.discordGuildId && guildId === config.env.discordGuildId);
 }
 
-const moduleDefinition = {
+import { BotModule } from '../moduleLoader';
+
+const moduleDefinition: BotModule = {
     name: 'githubReferences',
     description: 'Embeds public GitHub issues and pull requests referenced in messages',
+    help: {
+        summary: 'Automatic GitHub issues/PR embeds and repository prefix mapping',
+        description:
+            'Detects owner/repo#123 or prefix#123 patterns in chat messages, fetches metadata from GitHub API, and renders informative embed cards.',
+        usage: '/github_prefix_add | /github_prefix_remove | /github_prefix_list or #123 syntax in chat',
+        commands: [
+            {
+                name: 'github_prefix_add',
+                description: 'Add a repository shortcut prefix for this server',
+                usage: '/github_prefix_add <prefix:string> <repository:string> [global:boolean]',
+            },
+            {
+                name: 'github_prefix_remove',
+                description: 'Remove a repository shortcut prefix',
+                usage: '/github_prefix_remove <prefix:string> [global:boolean]',
+            },
+            {
+                name: 'github_prefix_list',
+                description: 'List configured GitHub repository prefixes',
+                usage: '/github_prefix_list',
+            },
+        ],
+        examples: [
+            'owner/repo#42',
+            'gt#1532',
+            '/github_prefix_add prefix:gt repository:GregTechCEu/GregTech5-Unofficial',
+            '/github_prefix_list',
+        ],
+    },
     register: async (client: any) => {
         commandRegistry.register({
             name: 'github_prefix_add',
@@ -375,6 +406,15 @@ const moduleDefinition = {
         });
 
         client.on('messageCreate', (message: any) => {
+            if (
+                !config.modules.isModuleEnabled(
+                    'githubReferences',
+                    message.guildId,
+                    message.channelId,
+                )
+            ) {
+                return;
+            }
             void handleGithubReferences(message);
         });
     },

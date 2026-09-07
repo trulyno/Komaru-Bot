@@ -15,9 +15,49 @@ import {
     removeReactionRole,
 } from '../services/reactionRoleService';
 
-const moduleDefinition = {
+import { config } from '../config';
+import { BotModule } from '../moduleLoader';
+
+const moduleDefinition: BotModule = {
     name: 'reactionRoles',
     description: 'Reaction-based role assignment and removal',
+    help: {
+        summary: 'Interactive emoji reaction roles on Discord messages',
+        description:
+            'Create or bind reactions to roles on messages, automatically granting or revoking roles when members react or unreact.',
+        usage: '/reaction_role_add | /reaction_role_create | /reaction_role_remove | /reaction_role_list | /reaction_role_clear',
+        commands: [
+            {
+                name: 'reaction_role_add',
+                description: 'Bind a reaction emoji to a role on an existing message',
+                usage: '/reaction_role_add <message_id:string> <emoji:string> <role:role>',
+            },
+            {
+                name: 'reaction_role_create',
+                description: 'Post a new embed message with a bound reaction role',
+                usage: '/reaction_role_create <role:role> <emoji:string> <title:string> <description:string> [channel:channel]',
+            },
+            {
+                name: 'reaction_role_remove',
+                description: 'Unbind a reaction role from a message',
+                usage: '/reaction_role_remove <message_id:string> <emoji:string>',
+            },
+            {
+                name: 'reaction_role_list',
+                description: 'List all configured reaction roles for this guild',
+                usage: '/reaction_role_list',
+            },
+            {
+                name: 'reaction_role_clear',
+                description: 'Clear all reaction roles from a message',
+                usage: '/reaction_role_clear <message_id:string>',
+            },
+        ],
+        examples: [
+            '/reaction_role_add message_id:123456789 emoji:🎮 role:@Gamers',
+            '/reaction_role_list',
+        ],
+    },
     register: async (client: any) => {
         // 1. Register slash commands
 
@@ -426,6 +466,15 @@ const moduleDefinition = {
         // 2. Attach Discord Gateway event listeners
         client.on('messageReactionAdd', async (reaction: any, user: any) => {
             try {
+                if (
+                    !config.modules.isModuleEnabled(
+                        'reactionRoles',
+                        reaction?.message?.guildId,
+                        reaction?.message?.channelId,
+                    )
+                ) {
+                    return;
+                }
                 await handleReactionAdd(reaction, user);
             } catch (error) {
                 logError(error, 'Error in messageReactionAdd listener');
@@ -434,6 +483,15 @@ const moduleDefinition = {
 
         client.on('messageReactionRemove', async (reaction: any, user: any) => {
             try {
+                if (
+                    !config.modules.isModuleEnabled(
+                        'reactionRoles',
+                        reaction?.message?.guildId,
+                        reaction?.message?.channelId,
+                    )
+                ) {
+                    return;
+                }
                 await handleReactionRemove(reaction, user);
             } catch (error) {
                 logError(error, 'Error in messageReactionRemove listener');

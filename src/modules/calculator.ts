@@ -1,4 +1,6 @@
 import { commandRegistry } from '../commandRegistry';
+import { config } from '../config';
+import { BotModule } from '../moduleLoader';
 import {
     evaluateExpression,
     extractExpressionFromMessage,
@@ -15,9 +17,27 @@ export {
     ExpressionTimeoutError,
 };
 
-const moduleDefinition = {
+const moduleDefinition: BotModule = {
     name: 'calculator',
-    description: 'Safely evaluates expressions and replies with a cat-ified result',
+    description: 'Safely evaluates math expressions and replies with cat-ified results',
+    help: {
+        summary: 'Safe mathematical expression evaluator with cat flair',
+        description:
+            'Evaluates mathematical expressions with support for operators, variables, functions, and cat-themed formatting.',
+        usage: '/calc <expression> or passive chat expression parsing',
+        commands: [
+            {
+                name: 'calc',
+                description: 'Evaluate a mathematical expression safely',
+                usage: '/calc <expression>',
+            },
+        ],
+        examples: [
+            '/calc expression:2 + 2',
+            '/calc expression:sqrt(144) * 3',
+            'calc: (10 + 5) / 3',
+        ],
+    },
     register: async (client: any) => {
         commandRegistry.register({
             name: 'calc',
@@ -55,6 +75,10 @@ const moduleDefinition = {
 
         client.on('messageCreate', async (message: any) => {
             if (!message || message.author?.bot) {
+                return;
+            }
+
+            if (!config.modules.isModuleEnabled('calculator', message.guildId, message.channelId)) {
                 return;
             }
 

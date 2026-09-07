@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { logger } from './logger';
+import { commandRegistry } from './commandRegistry';
 
 function loadModuleFromFile(modulePath: string): BotModule {
     // ts-node in CommonJS mode supports require() for loading TypeScript files.
@@ -10,10 +11,34 @@ function loadModuleFromFile(modulePath: string): BotModule {
     return (loaded.default ?? loaded.module) as BotModule;
 }
 
+export interface ModuleCommandHelp {
+    name: string;
+    description: string;
+    usage?: string;
+}
+
+export interface ModuleHelp {
+    summary?: string;
+    description?: string;
+    usage?: string;
+    commands?: ModuleCommandHelp[];
+    examples?: string[];
+    details?: string;
+}
+
+export type ModuleHelpProvider =
+    | string
+    | ModuleHelp
+    | ((context?: {
+          guildId?: string;
+          channelId?: string;
+      }) => string | ModuleHelp | Promise<string | ModuleHelp>);
+
 export interface BotModule {
     name: string;
     description: string;
-    register: (client: any, context: ModuleContext) => void | Promise<void>;
+    help?: ModuleHelpProvider;
+    register: (client: any, context?: ModuleContext) => void | Promise<void>;
 }
 
 export interface ModuleContext {
@@ -73,12 +98,65 @@ export class ModuleLoader {
             }
 
             try {
+                commandRegistry.setCurrentModule(module.name);
                 await module.register(client, context);
                 logger.info(`Registered module: ${module.name}`);
             } catch (error) {
                 logger.error(`Failed to register module ${moduleName}: ${error}`);
+            } finally {
+                commandRegistry.setCurrentModule(undefined);
             }
         }
+    }
+
+    getModule(moduleName: string): BotModule | undefined {
+        const target = moduleName.toLowerCase();
+        for (const [key, mod] of this.modules.entries()) {
+            if (key.toLowerCase() === target || mod.name.toLowerCase() === target) {
+                return mod;
+            }
+        }
+        return undefined;
+    }
+
+    getAllModules(): BotModule[] {
+        return Array.from(this.modules.values());
+    }
+
+    async getModuleHelp(
+        moduleName: string,
+        context?: { guildId?: string; channelId?: string },
+    ): Promise<ModuleHelp | string | null> {
+        const mod = this.getModule(moduleName);
+        if (!mod) {
+            return null;
+        }
+
+        if (typeof mod.help === 'function') {
+            return await mod.help(context);
+        }
+
+        if (mod.help) {
+            return mod.help;
+        }
+
+        // Fallback: auto-generate help structure from commandRegistry
+        const commands = commandRegistry.getByModule(mod.name).map((cmd) => {
+            const opts = (cmd.options || [])
+                .map((o) => (o.required ? `<${o.name}>` : `[${o.name}]`))
+                .join(' ');
+            return {
+                name: cmd.name,
+                description: cmd.description,
+                usage: opts.length > 0 ? `/${cmd.name} ${opts}` : `/${cmd.name}`,
+            };
+        });
+
+        return {
+            summary: mod.description,
+            description: mod.description,
+            commands,
+        };
     }
 
     async enableModule(moduleName: string, client: any): Promise<void> {
@@ -89,7 +167,12 @@ export class ModuleLoader {
 
         if (!this.enabledModules.has(moduleName)) {
             this.enabledModules.add(moduleName);
-            await module.register(client, this.createContext(client));
+            commandRegistry.setCurrentModule(module.name);
+            try {
+                await module.register(client, this.createContext(client));
+            } finally {
+                commandRegistry.setCurrentModule(undefined);
+            }
             logger.info(`Enabled module: ${moduleName}`);
         }
     }
@@ -114,7 +197,12 @@ export class ModuleLoader {
 
         this.modules.set(moduleName, moduleExport as BotModule);
         if (this.enabledModules.has(moduleName)) {
-            await moduleExport.register(client, this.createContext(client));
+            commandRegistry.setCurrentModule(moduleExport.name);
+            try {
+                await moduleExport.register(client, this.createContext(client));
+            } finally {
+                commandRegistry.setCurrentModule(undefined);
+            }
         }
         logger.info(`Reloaded module: ${moduleName}`);
     }
@@ -136,3 +224,5 @@ export class ModuleLoader {
         };
     }
 }
+
+export const moduleLoader = new ModuleLoader(path.resolve(__dirname, 'modules'));

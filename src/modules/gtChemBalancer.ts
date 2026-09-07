@@ -1,4 +1,6 @@
 import { commandRegistry } from '../commandRegistry';
+import { config } from '../config';
+import { BotModule } from '../moduleLoader';
 import {
     balanceChemicalEquation,
     isBalancedChemicalEquation,
@@ -6,9 +8,27 @@ import {
 
 export { balanceChemicalEquation, isBalancedChemicalEquation };
 
-const moduleDefinition = {
+const moduleDefinition: BotModule = {
     name: 'gtChemBalancer',
     description: 'Balances GT Chemistry equations with dust/fluid/catalyst support',
+    help: {
+        summary: 'GregTech chemical stoichiometry and equation balancer',
+        description:
+            'Parses reactants, products, states (dust, fluid, gas), and catalysts to balance linear chemical reactions.',
+        usage: '/balance <equation> or !balance <equation>',
+        commands: [
+            {
+                name: 'balance',
+                description: 'Check or balance a chemical equation',
+                usage: '/balance <equation:equation>',
+            },
+        ],
+        examples: [
+            '/balance equation:2H2 + O2 -> 2H2O',
+            '!balance CH4 + 2O2 -> CO2 + 2H2O',
+            '!balance Fe + Cl2 -> FeCl3',
+        ],
+    },
     register: async (client: any) => {
         commandRegistry.register({
             name: 'balance',
@@ -36,6 +56,16 @@ const moduleDefinition = {
 
         client.on('messageCreate', async (message: any) => {
             if (message.author.bot || !message.content.startsWith('!balance')) {
+                return;
+            }
+
+            if (
+                !config.modules.isModuleEnabled(
+                    'gtChemBalancer',
+                    message.guildId,
+                    message.channelId,
+                )
+            ) {
                 return;
             }
 

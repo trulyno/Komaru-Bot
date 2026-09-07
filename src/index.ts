@@ -1,8 +1,7 @@
 import 'dotenv/config';
 import { config } from './config';
 import { logger, logError } from './logger';
-import { ModuleLoader } from './moduleLoader';
-import path from 'node:path';
+import { moduleLoader } from './moduleLoader';
 import { once } from 'node:events';
 import { cleanAndSyncCommands, restartBot, stopBot, syncCommands } from './commandHandlers';
 import { commandRegistry } from './commandRegistry';
@@ -32,8 +31,6 @@ const client = new Client({
         Partials.GuildMember,
     ],
 });
-
-const moduleLoader = new ModuleLoader(path.resolve(__dirname, 'modules'));
 
 async function main(): Promise<void> {
     await moduleLoader.loadAll();
@@ -97,6 +94,34 @@ async function main(): Promise<void> {
         if (!command) {
             logger.warn(`Unknown command: ${interaction.commandName}`);
             return;
+        }
+
+        if (command.module) {
+            const isGuildEnabled = config.modules.isModuleEnabled(
+                command.module,
+                interaction.guildId,
+            );
+            const isChannelEnabled = config.modules.isModuleEnabled(
+                command.module,
+                interaction.guildId,
+                interaction.channelId,
+            );
+
+            if (!isGuildEnabled) {
+                await interaction.reply({
+                    content: `The \`${command.module}\` module is currently disabled in this server.`,
+                    ephemeral: true,
+                });
+                return;
+            }
+
+            if (!isChannelEnabled) {
+                await interaction.reply({
+                    content: `The \`${command.module}\` module is currently disabled in this channel.`,
+                    ephemeral: true,
+                });
+                return;
+            }
         }
 
         try {

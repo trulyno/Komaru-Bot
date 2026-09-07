@@ -20,12 +20,78 @@ import {
 
 export { buildMessageFingerprint, parseDurationToMilliseconds };
 
-const moduleDefinition = {
+import { config } from '../config';
+import { BotModule } from '../moduleLoader';
+
+const moduleDefinition: BotModule = {
     name: 'auditLog',
     description: 'Moderation logging, timeout controls, and anti-spam / ghost-ping protection',
+    help: {
+        summary: 'Moderation logging and security auditing',
+        description:
+            'Tracks deleted messages, member timeouts, bans/unbans, duplicate spam detection, and ghost pings with searchable audit logs and stats.',
+        usage: '/timeout | /ban | /warn | /set_audit_log_channel | /audit_search | /mod_stats',
+        commands: [
+            {
+                name: 'set_audit_log_channel',
+                description: 'Set the channel used for moderation audit logs',
+                usage: '/set_audit_log_channel <channel:channel>',
+            },
+            {
+                name: 'timeout',
+                description: 'Timeout a guild member for a given duration',
+                usage: '/timeout <user:user> <duration:string> [reason:string]',
+            },
+            {
+                name: 'untimeout',
+                description: 'Remove timeout from a guild member',
+                usage: '/untimeout <user:user> [reason:string]',
+            },
+            {
+                name: 'ban',
+                description: 'Ban a member from the guild',
+                usage: '/ban <user:user> [reason:string]',
+            },
+            {
+                name: 'unban',
+                description: 'Unban a user by their user ID',
+                usage: '/unban <user_id:string> [reason:string]',
+            },
+            {
+                name: 'warn',
+                description: 'Issue a formal moderation warning to a user',
+                usage: '/warn <user:user> <reason:string>',
+            },
+            {
+                name: 'audit_search',
+                description: 'Search recent audit log entries for this guild',
+                usage: '/audit_search [user:user] [action:string] [limit:number]',
+            },
+            {
+                name: 'mod_stats',
+                description: 'View moderation action statistics for this guild',
+                usage: '/mod_stats [user:user]',
+            },
+        ],
+        examples: [
+            '/timeout user:@Troublemaker duration:10m reason:Spamming',
+            '/warn user:@Member reason:Please mind rule 3',
+            '/audit_search action:BAN',
+            '/mod_stats',
+        ],
+    },
     register: async (client: any) => {
         client.on('messageCreate', async (message: any) => {
             try {
+                if (
+                    !config.modules.isModuleEnabled(
+                        'auditLog',
+                        message?.guildId,
+                        message?.channelId,
+                    )
+                ) {
+                    return;
+                }
                 await handleDuplicateSpamming(message);
                 await handleGhostPing(message);
             } catch (error) {
@@ -35,6 +101,15 @@ const moduleDefinition = {
 
         client.on('messageDelete', async (message: any) => {
             try {
+                if (
+                    !config.modules.isModuleEnabled(
+                        'auditLog',
+                        message?.guildId,
+                        message?.channelId,
+                    )
+                ) {
+                    return;
+                }
                 await handleGhostPingDelete(message);
                 await handleMessageDeletion(message);
             } catch (error) {
@@ -44,6 +119,9 @@ const moduleDefinition = {
 
         client.on('guildMemberUpdate', async (oldMember: any, newMember: any) => {
             try {
+                if (!config.modules.isModuleEnabled('auditLog', newMember?.guild?.id)) {
+                    return;
+                }
                 await handleTimeoutChange(oldMember, newMember);
             } catch (error) {
                 logger.error(`Error handling moderation timeout event: ${error}`);
@@ -52,6 +130,9 @@ const moduleDefinition = {
 
         client.on('guildBanAdd', async (guildBan: any) => {
             try {
+                if (!config.modules.isModuleEnabled('auditLog', guildBan?.guild?.id)) {
+                    return;
+                }
                 await handleBanAdd(guildBan);
             } catch (error) {
                 logger.error(`Error handling moderation ban add event: ${error}`);
@@ -60,6 +141,9 @@ const moduleDefinition = {
 
         client.on('guildBanRemove', async (guildBan: any) => {
             try {
+                if (!config.modules.isModuleEnabled('auditLog', guildBan?.guild?.id)) {
+                    return;
+                }
                 await handleBanRemove(guildBan);
             } catch (error) {
                 logger.error(`Error handling moderation ban remove event: ${error}`);

@@ -1,4 +1,6 @@
 import { commandRegistry } from '../commandRegistry';
+import { config } from '../config';
+import { BotModule } from '../moduleLoader';
 import { UserTimezoneStore } from '../services/timezoneStore';
 import {
     buildTimeReply,
@@ -21,9 +23,28 @@ export {
 
 const timezoneStore = new UserTimezoneStore();
 
-const moduleDefinition = {
+const moduleDefinition: BotModule = {
     name: 'time',
-    description: 'Get the current time or a user-specific time',
+    description: 'Get current time across global timezones or user-specific time',
+    help: {
+        summary: 'Time conversion and personal timezone preferences',
+        description:
+            'Look up the current time in various worldwide locations or configure your personal timezone for instant time queries.',
+        usage: '/settimezone <timezone> or !time <location> or !mytime',
+        commands: [
+            {
+                name: 'settimezone',
+                description: 'Set your personal timezone for quick time queries',
+                usage: '/settimezone <timezone:IANA_timezone>',
+            },
+        ],
+        examples: [
+            '/settimezone timezone:America/New_York',
+            '!time London',
+            '!time Tokyo',
+            '!mytime',
+        ],
+    },
     register: async (client: any) => {
         commandRegistry.register({
             name: 'settimezone',
@@ -60,6 +81,10 @@ const moduleDefinition = {
 
         client.on('messageCreate', async (message: any) => {
             if (!message || message.author?.bot) {
+                return;
+            }
+
+            if (!config.modules.isModuleEnabled('time', message.guildId, message.channelId)) {
                 return;
             }
 

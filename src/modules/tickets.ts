@@ -13,12 +13,34 @@ import {
 } from '../services/ticketService';
 import { canModerate, sendAuditLog } from '../services/auditLogService';
 
+import { config } from '../config';
+import { BotModule } from '../moduleLoader';
+
 let reminderIntervalTimer: NodeJS.Timeout | null = null;
 
-const moduleDefinition = {
+const moduleDefinition: BotModule = {
     name: 'tickets',
     description:
         'Cat-ified support ticket system with form submission, channel access controls, and activity reminders',
+    help: {
+        summary: 'Private support tickets with dedicated channels and forms',
+        description:
+            'Opens modal support forms, creates dedicated private channels, manages staff/creator permissions, archives/deletes tickets, and monitors ticket inactivity.',
+        usage: '/ticket [action:archive|delete|status] | /set_ticket_category',
+        commands: [
+            {
+                name: 'ticket',
+                description: 'Open a support ticket form or manage existing tickets',
+                usage: '/ticket [action:archive|delete|status]',
+            },
+            {
+                name: 'set_ticket_category',
+                description: 'Configure the parent category channel for new support tickets',
+                usage: '/set_ticket_category <category:channel>',
+            },
+        ],
+        examples: ['/ticket', '/ticket action:status', '/ticket action:archive'],
+    },
     register: async (client: any) => {
         commandRegistry.register({
             name: 'ticket',
@@ -190,6 +212,16 @@ const moduleDefinition = {
         // Listen for Modal Submissions and Button Interactions
         client.on('interactionCreate', async (interaction: any) => {
             try {
+                if (
+                    !config.modules.isModuleEnabled(
+                        'tickets',
+                        interaction.guildId,
+                        interaction.channelId,
+                    )
+                ) {
+                    return;
+                }
+
                 if (interaction.isModalSubmit?.()) {
                     if (interaction.customId === 'ticket_modal') {
                         if (!interaction.guild) {
@@ -312,6 +344,11 @@ const moduleDefinition = {
         client.on('messageCreate', async (message: any) => {
             if (!message || message.author?.bot || !message.channel?.id) return;
             try {
+                if (
+                    !config.modules.isModuleEnabled('tickets', message.guildId, message.channelId)
+                ) {
+                    return;
+                }
                 await updateTicketActivity(message.channel.id);
             } catch (error) {
                 logger.error(`Error updating ticket activity on message: ${error}`);

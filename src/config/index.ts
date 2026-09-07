@@ -113,6 +113,8 @@ export const DEFAULT_PASS_THE_TUNA_CONFIG: PassTheTunaConfig = {
     events: [],
 };
 
+import { moduleConfigService, ModuleConfigService } from '../services/moduleConfigService';
+
 class ConfigManager {
     private envConfigCache?: EnvConfig;
     private templateConfigCache?: TemplateConfig;
@@ -171,6 +173,10 @@ class ConfigManager {
         return this.passTheTunaConfigCache;
     }
 
+    public get modules(): ModuleConfigService {
+        return moduleConfigService;
+    }
+
     /**
      * Forces reloading of environment and JSON configuration caches from disk.
      */
@@ -180,6 +186,7 @@ class ConfigManager {
         this.auditLogConfigCache = undefined;
         this.catReactionsConfigCache = undefined;
         this.passTheTunaConfigCache = undefined;
+        moduleConfigService.reload();
     }
 }
 

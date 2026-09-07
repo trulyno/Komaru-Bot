@@ -9,6 +9,8 @@ import {
 import { markMessageAsBotDeleted } from '../services/auditLogService';
 import fs from 'node:fs';
 import path from 'node:path';
+import { config } from '../config';
+import { BotModule } from '../moduleLoader';
 
 const defaultDataDir = path.resolve(__dirname, '../../data/pass_the_tuna');
 
@@ -23,9 +25,38 @@ function isAdmin(interaction: any): boolean {
     return false;
 }
 
-const moduleDefinition = {
+const moduleDefinition: BotModule = {
     name: 'passTheTuna',
     description: 'A pass-the-tuna minigame for Discord channels',
+    help: {
+        summary: 'State-machine pass-the-tuna minigame',
+        description:
+            'Start a tuna chain in a channel where users type "pass" or "take" to score points, accumulate deliciousness, and trigger random events.',
+        usage: '/tuna_start | /tuna_stop | /tuna_status | /tuna_leaderboard',
+        commands: [
+            {
+                name: 'tuna_start',
+                description: 'Start a new Pass the Tuna game in the specified channel',
+                usage: '/tuna_start [channel:channel]',
+            },
+            {
+                name: 'tuna_stop',
+                description: 'Stop the active Pass the Tuna game',
+                usage: '/tuna_stop',
+            },
+            {
+                name: 'tuna_status',
+                description: 'Check current tuna status and game state',
+                usage: '/tuna_status',
+            },
+            {
+                name: 'tuna_leaderboard',
+                description: 'View the highest scoring Pass the Tuna players',
+                usage: '/tuna_leaderboard [limit:number]',
+            },
+        ],
+        examples: ['/tuna_start', '/tuna_status', '/tuna_leaderboard'],
+    },
     register: async (client: any) => {
         loadPassTheTunaConfig(defaultDataDir);
 
@@ -33,6 +64,12 @@ const moduleDefinition = {
 
         client.on('messageCreate', async (message: any) => {
             if (!message || message.author?.bot) return;
+
+            if (
+                !config.modules.isModuleEnabled('passTheTuna', message.guildId, message.channelId)
+            ) {
+                return;
+            }
 
             const state = loadPassTheTunaState(defaultDataDir);
             if (
