@@ -156,9 +156,9 @@ const moduleDefinition: BotModule = {
                     .getAllModules()
                     .sort((a, b) => a.name.localeCompare(b.name));
                 const embed = new EmbedBuilder()
-                    .setTitle('Komaru Bot — Modules & Help')
+                    .setTitle('Komaru the Cat — Modules & Help')
                     .setDescription(
-                        'Here are the loaded modules for Komaru Bot. Use `/help [module]` to view detailed commands and instructions for any specific module.',
+                        'Here are the loaded modules for Komaru the Cat. Use `/help [module]` to view detailed commands and instructions for any specific module.',
                     )
                     .setColor(0x6a5acd);
 

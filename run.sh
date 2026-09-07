@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "======================================="
-echo "       Starting Komaru Bot             "
+echo "       Starting Komaru the Cat             "
 echo "======================================="
 
 # Check for .env file

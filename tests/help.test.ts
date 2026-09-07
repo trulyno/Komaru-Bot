@@ -57,7 +57,7 @@ async function runHelpTests(): Promise<void> {
         assert.ok(repliedPayload, 'Should reply to general help');
         assert.ok(repliedPayload.embeds && repliedPayload.embeds.length > 0);
         const embedData = repliedPayload.embeds[0].data;
-        assert.strictEqual(embedData.title, 'Komaru Bot — Modules & Help');
+        assert.strictEqual(embedData.title, 'Komaru the Cat — Modules & Help');
         const allFieldValues = embedData.fields.map((f: any) => f.value).join('\n');
         assert.ok(allFieldValues.includes('chess'));
         assert.ok(allFieldValues.includes('calculator'));

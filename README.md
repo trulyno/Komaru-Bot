@@ -1,6 +1,6 @@
-# Komaru Bot
+# Komaru the Cat
 
-Komaru Bot is an event-driven Discord application written in TypeScript (Node.js / discord.js v14) with dynamic module loading, moderation, community minigames, user commands, and server utilities.
+Komaru the Cat is an event-driven Discord application written in TypeScript (Node.js / discord.js v14) with dynamic module loading, moderation, community minigames, user commands, and server utilities.
 
 ## Setup & Development
 

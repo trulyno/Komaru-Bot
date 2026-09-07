@@ -93,7 +93,7 @@ No. All member data is processed strictly in-memory during gateway event handlin
 
 **Can users opt-out of having their message content data tracked?**
 
-Yes. Administrators can restrict the bot's channel view and message permissions in channels where bot functionality is not desired. Furthermore, Komaru Bot does not store message history or log content off-platform; message data is evaluated ephemerally in-memory and discarded immediately after processing.
+Yes. Administrators can restrict the bot's channel view and message permissions in channels where bot functionality is not desired. Furthermore, Komaru the Cat does not store message history or log content off-platform; message data is evaluated ephemerally in-memory and discarded immediately after processing.
 
 **Are you storing message content data off-platform (outside of Discord)?**
 

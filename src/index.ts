@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     await moduleLoader.loadAll();
 
     client.once('clientReady', () => {
-        logger.info(`Komaru Bot ready as ${client.user?.tag ?? 'unknown'}`);
+        logger.info(`Komaru the Cat ready as ${client.user?.tag ?? 'unknown'}`);
     });
 
     client.login(token).catch((error: unknown) => {
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
             await interaction.reply({
                 embeds: [
                     {
-                        title: 'Komaru Bot',
+                        title: 'Komaru the Cat',
                         description:
                             'A modular Discord bot foundation with runtime command syncing.',
                         color: 0x6a5acd,

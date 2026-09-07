@@ -1,16 +1,16 @@
-# Privacy Policy for Komaru Bot
+# Privacy Policy for Komaru the Cat
 
 **Last Updated:** August 19, 2026
 
-This Privacy Policy explains how **Komaru Bot** ("the Bot") collects, uses, stores, and protects user information when installed in Discord servers or interacted with by users.
+This Privacy Policy explains how **Komaru the Cat** ("the Bot") collects, uses, stores, and protects user information when installed in Discord servers or interacted with by users.
 
-By using Komaru Bot, you agree to the collection and use of information in accordance with this policy.
+By using Komaru the Cat, you agree to the collection and use of information in accordance with this policy.
 
 ---
 
 ## 1. Information We Collect
 
-Komaru Bot collects minimal data necessary to function properly and provide moderation, command automation, and utility features.
+Komaru the Cat collects minimal data necessary to function properly and provide moderation, command automation, and utility features.
 
 ### A. Information Automatically Processed
 
@@ -58,7 +58,7 @@ We **do not** sell, rent, trade, or share user data with third parties.
 
 ## 4. Third-Party Services
 
-Komaru Bot connects to:
+Komaru the Cat connects to:
 
 - **Discord API**: To receive events and send messages in accordance with [Discord's Terms of Service](https://discord.com/terms) and [Developer Policy](https://discord.com/developers/docs/policies-and-agreements/developer-policy).
 - **GitHub API**: (Optional) To fetch public repository issue and pull request details when GitHub references are mentioned in chat.

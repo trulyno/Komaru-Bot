@@ -66,7 +66,7 @@ function parseArgs(): DeployOptions {
             restart = true;
         } else if (arg === '--help' || arg === '-h') {
             console.log(`
-${colors.bright}Komaru Bot Production Deployment Pipeline${colors.reset}
+${colors.bright}Komaru the Cat Production Deployment Pipeline${colors.reset}
 
 ${colors.yellow}Usage:${colors.reset}
   npm run deploy [-- [OPTIONS]]
@@ -165,7 +165,7 @@ async function main(): Promise<void> {
         `\n${colors.magenta}${colors.bright}====================================================${colors.reset}`,
     );
     console.log(
-        `${colors.magenta}${colors.bright}   Komaru Bot — Production Deployment Pipeline      ${colors.reset}`,
+        `${colors.magenta}${colors.bright}   Komaru the Cat — Production Deployment Pipeline      ${colors.reset}`,
     );
     console.log(
         `${colors.magenta}${colors.bright}====================================================${colors.reset}`,

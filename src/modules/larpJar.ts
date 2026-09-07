@@ -191,7 +191,7 @@ const moduleDefinition: BotModule = {
                             lines.join('\n'),
                     )
                     .setColor(Colors.Gold)
-                    .setFooter({ text: 'Komaru Bot • Drop a coin whenever you larp!' })
+                    .setFooter({ text: 'Komaru the Cat • Drop a coin whenever you larp!' })
                     .setTimestamp();
 
                 await interaction.reply({ embeds: [embed] });
@@ -246,7 +246,7 @@ const moduleDefinition: BotModule = {
                             inline: true,
                         },
                     )
-                    .setFooter({ text: 'Komaru Bot • Speak carefully!' })
+                    .setFooter({ text: 'Komaru the Cat • Speak carefully!' })
                     .setTimestamp();
 
                 await interaction.reply({ embeds: [embed] });

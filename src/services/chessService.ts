@@ -388,7 +388,7 @@ export function buildLeaderboardEmbed(guildName?: string, limit = 10): EmbedBuil
     });
 
     embed.setDescription(lines.join('\n\n'));
-    embed.setFooter({ text: 'Komaru Bot Chess • Play matches using /chess challenge' });
+    embed.setFooter({ text: 'Komaru the Cat Chess • Play matches using /chess challenge' });
 
     return embed;
 }
@@ -1299,7 +1299,7 @@ export function getNotationGuideEmbed(): EmbedBuilder {
             },
         ])
         .setFooter({
-            text: 'Komaru Bot Chess • Play using /chess move <notation> or !m <notation>',
+            text: 'Komaru the Cat Chess • Play using /chess move <notation> or !m <notation>',
         });
 }
 

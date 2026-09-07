@@ -1,7 +1,7 @@
 {
     "name": "komaru-bot",
     "version": "0.1.0",
-    "description": "Base for the Komaru Bot Discord application",
+    "description": "Base for the Komaru the Cat Discord application",
     "main": "dist/index.js",
     "scripts": {
         "dev": "ts-node src/index.ts",

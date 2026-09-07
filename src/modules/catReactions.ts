@@ -23,7 +23,7 @@ const moduleDefinition: BotModule = {
         summary: 'Cat persona and playful reactions',
         description:
             'Passively responds to cat sounds (nya, meow, etc.) and bot mentions with cute text, emojis, and GIFs based on configurable probabilities.',
-        usage: 'Chat triggers (nya, meow, mew, @Komaru Bot)',
+        usage: 'Chat triggers (nya, meow, mew, @Komaru the Cat)',
         examples: ['nya~', 'meow', 'mew'],
     },
     register: async (client: any) => {

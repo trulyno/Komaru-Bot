@@ -210,7 +210,7 @@ const moduleDefinition: BotModule = {
                                 `Click **Accept Match** below to begin playing with Standard Algebraic Notation (e.g. \`e4\`, \`Nf3\`, \`O-O\`).`,
                         )
                         .setFooter({
-                            text: 'Komaru Bot Chess • Matches must be accepted by the challenged user',
+                            text: 'Komaru the Cat Chess • Matches must be accepted by the challenged user',
                         });
 
                     const row = buildChallengeActionRow(game.id);
