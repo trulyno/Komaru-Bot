@@ -7,10 +7,12 @@
         "dev": "ts-node src/index.ts",
         "build": "tsc -p tsconfig.json",
         "start": "node dist/index.js",
-        "lint": "eslint . --ext .ts",
+        "lint": "node scripts/lint.js .",
         "format": "prettier --write .",
         "lint:typecheck": "tsc -p tsconfig.json",
-        "test": "ts-node tests/runTests.ts"
+        "test": "ts-node tests/runTests.ts",
+        "deploy": "ts-node scripts/deploy.ts",
+        "deploy:dry-run": "ts-node scripts/deploy.ts --dry-run"
     },
     "keywords": [
         "discord",

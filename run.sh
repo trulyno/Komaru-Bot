@@ -51,6 +51,10 @@ for arg in "$@"; do
             echo "[INFO] Build completed successfully."
             exit 0
             ;;
+        --deploy|deploy)
+            shift || true
+            exec ./deploy.sh "$@"
+            ;;
         --help|-h)
             echo "Usage: ./run.sh [OPTIONS]"
             echo ""
@@ -58,6 +62,7 @@ for arg in "$@"; do
             echo "  --dev, dev            Run in development mode (using ts-node)"
             echo "  --loop, loop          Auto-restart bot if it crashes"
             echo "  --build, build        Build the project and exit"
+            echo "  --deploy, deploy      Run full production pipeline and deploy to prod"
             echo "  --help, -h            Show this help message"
             echo ""
             echo "By default, run.sh builds the project and starts the bot in production mode."
