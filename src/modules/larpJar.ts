@@ -55,7 +55,11 @@ const moduleDefinition: BotModule = {
                 if (!message.guild) return;
 
                 if (
-                    !config.modules.isModuleEnabled('larpJar', message.guild.id, message.channel?.id)
+                    !config.modules.isModuleEnabled(
+                        'larpJar',
+                        message.guild.id,
+                        message.channel?.id,
+                    )
                 ) {
                     return;
                 }

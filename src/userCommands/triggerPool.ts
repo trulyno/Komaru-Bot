@@ -161,12 +161,31 @@ export class TriggerPool {
                     cmdCooldowns.set(authorId, now);
                 }
 
+                const EXECUTION_TIMEOUT_MS = 5000;
+                let timeoutHandle: NodeJS.Timeout | undefined;
+                const timeoutPromise = new Promise((_, reject) => {
+                    timeoutHandle = setTimeout(() => {
+                        reject(
+                            new Error(
+                                `Execution of command "${cmd.metadata.name}" timed out after ${EXECUTION_TIMEOUT_MS}ms`,
+                            ),
+                        );
+                    }, EXECUTION_TIMEOUT_MS);
+                });
+
                 try {
-                    await this.executeCommand(cmd, message, matchResult.matchGroups);
+                    await Promise.race([
+                        this.executeCommand(cmd, message, matchResult.matchGroups),
+                        timeoutPromise,
+                    ]);
                     return true;
                 } catch (error) {
                     logger.error(`Error executing user command "${cmd.metadata.name}": ${error}`);
                     return false;
+                } finally {
+                    if (timeoutHandle) {
+                        clearTimeout(timeoutHandle);
+                    }
                 }
             }
         }
@@ -245,7 +264,8 @@ export class TriggerPool {
             resolveRoleName: (id: string) => resolveRoleName(id, message),
         };
 
-        await this.runActionSequence(cmd.actions, cmd, message, ctx);
+        const state = { actionsRun: 0, maxActions: 100 };
+        await this.runActionSequence(cmd.actions, cmd, message, ctx, state);
     }
 
     private async runActionSequence(
@@ -253,8 +273,17 @@ export class TriggerPool {
         cmd: UserCommandJson,
         message: any,
         ctx: EvaluationContext,
+        state: { actionsRun: number; maxActions: number } = { actionsRun: 0, maxActions: 100 },
     ): Promise<void> {
         for (const action of actions) {
+            if (state.actionsRun >= state.maxActions) {
+                logger.warn(
+                    `Command "${cmd.metadata.name}" exceeded maximum action limit (${state.maxActions}). Stopping execution.`,
+                );
+                return;
+            }
+            state.actionsRun++;
+
             switch (action.type) {
                 case 'memorize': {
                     const evaluatedValue = this.evaluateActionValue(action.value, ctx);
@@ -400,12 +429,24 @@ export class TriggerPool {
                         for (const branch of ponderData.branches) {
                             if (evaluateBooleanExpr(branch.condition, ctx)) {
                                 matchedBranch = true;
-                                await this.runActionSequence(branch.actions, cmd, message, ctx);
+                                await this.runActionSequence(
+                                    branch.actions,
+                                    cmd,
+                                    message,
+                                    ctx,
+                                    state,
+                                );
                                 break;
                             }
                         }
                         if (!matchedBranch && ponderData.otherwise) {
-                            await this.runActionSequence(ponderData.otherwise, cmd, message, ctx);
+                            await this.runActionSequence(
+                                ponderData.otherwise,
+                                cmd,
+                                message,
+                                ctx,
+                                state,
+                            );
                         }
                     }
                     break;

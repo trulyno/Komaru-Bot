@@ -18,11 +18,7 @@ export function parseUserCommand(
     authorId: string,
     mediaFiles?: Array<{ filename: string; path: string }>,
 ): UserCommandJson {
-    const cleanedText = stripComments(rawContent);
-    const lines = cleanedText
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
+    const lines = splitStructuralLines(rawContent);
 
     let name = '';
     let description = '';
@@ -93,26 +89,26 @@ export function parseUserCommand(
                 roles = metaRest
                     .substring(6)
                     .split(',')
-                    .map((r) =>
+                    .map((r: string) =>
                         r
                             .trim()
                             .replace(/^<@&?(\d+)>$/, '$1')
                             .replace(/^["']|["']$/g, '')
                             .trim(),
                     )
-                    .filter((r) => r.length > 0);
+                    .filter((r: string) => r.length > 0);
             } else if (metaRest.toLowerCase().startsWith('channels ')) {
                 channels = metaRest
                     .substring(9)
                     .split(',')
-                    .map((c) =>
+                    .map((c: string) =>
                         c
                             .trim()
                             .replace(/^<#(\d+)>$/, '$1')
                             .replace(/^["']|["']$/g, '')
                             .trim(),
                     )
-                    .filter((c) => c.length > 0);
+                    .filter((c: string) => c.length > 0);
             } else if (metaRest.toLowerCase().startsWith('enabled ')) {
                 enabled = metaRest.substring(8).trim().toLowerCase() === 'true';
             }
@@ -169,7 +165,7 @@ export function parseUserCommand(
         if (line.match(/^you\s+embed\s*\{/i)) {
             const { action, nextIndex } = parseEmbedAction(lines, i, varAliases);
             actions.push(action);
-            i = nextIndex;
+            i = Math.max(i + 1, nextIndex);
             continue;
         }
 
@@ -177,7 +173,7 @@ export function parseUserCommand(
         if (line.match(/^ponder\s+/i)) {
             const { action, nextIndex } = parsePonderAction(lines, i, varAliases);
             actions.push(action);
-            i = nextIndex;
+            i = Math.max(i + 1, nextIndex);
             continue;
         }
 
@@ -185,7 +181,7 @@ export function parseUserCommand(
         if (line.match(/^scratch\s+pole\s+/i)) {
             const { action, nextIndex } = parsePipelineAction(lines, i, varAliases);
             actions.push(action);
-            i = nextIndex;
+            i = Math.max(i + 1, nextIndex);
             continue;
         }
 
@@ -362,35 +358,29 @@ function parseEmbedAction(
     while (i < lines.length && !lines[i].startsWith('}')) {
         const line = lines[i].trim();
 
-        const titleMatch = line.match(/^title\s+"([^"]+)"$/i);
+        const titleMatch = line.match(/title\s+"([^"\\]*(?:\\.[^"\\]*)*)"/i);
         if (titleMatch) {
             embedData.title = titleMatch[1];
-            i++;
-            continue;
         }
 
-        const descMatch = line.match(/^description\s+"([^"]+)"$/i);
+        const descMatch = line.match(/description\s+"([^"\\]*(?:\\.[^"\\]*)*)"/i);
         if (descMatch) {
             embedData.description = descMatch[1];
-            i++;
-            continue;
         }
 
-        const colorMatch = line.match(/^color\s+"([^"]+)"$/i);
+        const colorMatch = line.match(/color\s+"([^"\\]*(?:\\.[^"\\]*)*)"/i);
         if (colorMatch) {
             embedData.color = colorMatch[1];
-            i++;
-            continue;
         }
 
-        const fieldMatch = line.match(/^field\s+"([^"]+)"\s*-\s*"([^"]+)"$/i);
-        if (fieldMatch) {
+        const fieldMatches = Array.from(
+            line.matchAll(/field\s+"([^"\\]*(?:\\.[^"\\]*)*)"\s*-\s*"([^"\\]*(?:\\.[^"\\]*)*)"/gi),
+        );
+        for (const fm of fieldMatches) {
             embedData.fields?.push({
-                name: fieldMatch[1],
-                value: fieldMatch[2],
+                name: fm[1],
+                value: fm[2],
             });
-            i++;
-            continue;
         }
 
         i++;
@@ -401,7 +391,52 @@ function parseEmbedAction(
             type: 'embed',
             value: embedData,
         },
-        nextIndex: i + 1,
+        nextIndex: i < lines.length && lines[i].startsWith('}') ? i + 1 : i,
+    };
+}
+
+function extractPonderCondition(
+    line: string,
+): { condition: string; bodyStartIndex: number } | null {
+    const firstBrace = line.indexOf('{');
+    if (firstBrace === -1) return null;
+
+    let depth = 0;
+    let inQuotes = false;
+    let quoteChar = '';
+    let condEnd = -1;
+
+    for (let j = firstBrace; j < line.length; j++) {
+        const char = line[j];
+        if ((char === '"' || char === "'") && (j === 0 || line[j - 1] !== '\\')) {
+            if (!inQuotes) {
+                inQuotes = true;
+                quoteChar = char;
+            } else if (quoteChar === char) {
+                inQuotes = false;
+            }
+            continue;
+        }
+
+        if (inQuotes) continue;
+
+        if (char === '{') {
+            depth++;
+        } else if (char === '}') {
+            depth--;
+            if (depth === 0) {
+                condEnd = j;
+                break;
+            }
+        }
+    }
+
+    if (condEnd === -1) return null;
+
+    const condition = line.substring(firstBrace + 1, condEnd).trim();
+    return {
+        condition,
+        bodyStartIndex: condEnd + 1,
     };
 }
 
@@ -415,43 +450,113 @@ function parsePonderAction(
     let otherwiseActions: UserCommandAction[] | undefined;
 
     while (i < lines.length) {
-        const line = lines[i].trim();
+        let line = lines[i].trim();
 
-        if (line.match(/^ponder\s+/i) || line.match(/^ponder\s+again\s+/i)) {
-            // ponder {cond} {
-            const condMatch = line.match(/^ponder(?:\s+again)?\s*\{([^}]+)\}\s*\{/i);
-            if (condMatch) {
-                const condition = condMatch[1].trim();
+        if (line.startsWith('}')) {
+            line = line.substring(1).trim();
+        }
+
+        if (!line) {
+            i++;
+            continue;
+        }
+
+        if (line.match(/^ponder(?:\s+again)?\b/i)) {
+            const extracted = extractPonderCondition(line);
+            if (extracted) {
+                const condition = extracted.condition;
                 i++;
-                const branchLines: string[] = [];
-                while (i < lines.length && !lines[i].startsWith('}')) {
-                    branchLines.push(lines[i]);
+                const bActions: UserCommandAction[] = [];
+                while (i < lines.length) {
+                    const bLine = lines[i].trim();
+
+                    if (bLine.startsWith('}')) {
+                        break;
+                    }
+
+                    if (bLine.match(/^you\s+embed\s*\{/i)) {
+                        const { action: embedAct, nextIndex: embedNext } = parseEmbedAction(
+                            lines,
+                            i,
+                            varAliases,
+                        );
+                        bActions.push(embedAct);
+                        i = Math.max(i + 1, embedNext);
+                        continue;
+                    }
+
+                    if (bLine.match(/^scratch\s+pole\s+/i)) {
+                        const { action: pipeAct, nextIndex: pipeNext } = parsePipelineAction(
+                            lines,
+                            i,
+                            varAliases,
+                        );
+                        bActions.push(pipeAct);
+                        i = Math.max(i + 1, pipeNext);
+                        continue;
+                    }
+
+                    const act = parseActionLine(bLine, varAliases);
+                    if (act) {
+                        bActions.push(act);
+                    }
                     i++;
                 }
-                const bActions: UserCommandAction[] = [];
-                for (const bLine of branchLines) {
-                    const act = parseActionLine(bLine, varAliases);
-                    if (act) bActions.push(act);
-                }
+
                 branches.push({ condition, actions: bActions });
-                i++; // past '}'
+
+                if (i < lines.length && lines[i].trim() === '}') {
+                    i++;
+                }
+                continue;
+            } else {
+                i++;
                 continue;
             }
         }
 
-        if (line.match(/^otherwise\s*\{/i)) {
+        if (line.match(/^otherwise\b/i)) {
             i++;
-            const otherwiseLines: string[] = [];
-            while (i < lines.length && !lines[i].startsWith('}')) {
-                otherwiseLines.push(lines[i]);
+            otherwiseActions = [];
+            while (i < lines.length) {
+                const oLine = lines[i].trim();
+
+                if (oLine.startsWith('}')) {
+                    break;
+                }
+
+                if (oLine.match(/^you\s+embed\s*\{/i)) {
+                    const { action: embedAct, nextIndex: embedNext } = parseEmbedAction(
+                        lines,
+                        i,
+                        varAliases,
+                    );
+                    otherwiseActions.push(embedAct);
+                    i = Math.max(i + 1, embedNext);
+                    continue;
+                }
+
+                if (oLine.match(/^scratch\s+pole\s+/i)) {
+                    const { action: pipeAct, nextIndex: pipeNext } = parsePipelineAction(
+                        lines,
+                        i,
+                        varAliases,
+                    );
+                    otherwiseActions.push(pipeAct);
+                    i = Math.max(i + 1, pipeNext);
+                    continue;
+                }
+
+                const act = parseActionLine(oLine, varAliases);
+                if (act) {
+                    otherwiseActions.push(act);
+                }
                 i++;
             }
-            otherwiseActions = [];
-            for (const oLine of otherwiseLines) {
-                const act = parseActionLine(oLine, varAliases);
-                if (act) otherwiseActions.push(act);
+
+            if (i < lines.length && lines[i].trim() === '}') {
+                i++;
             }
-            i++; // past '}'
             break;
         }
 
@@ -468,7 +573,7 @@ function parsePonderAction(
             type: 'ponder',
             value: ponderData,
         },
-        nextIndex: i,
+        nextIndex: Math.max(i, startIndex + 1),
     };
 }
 
@@ -547,6 +652,69 @@ function parseVarsLines(varLines: string[], varAliases: Record<string, number>):
             varAliases[alias] = slot;
         }
     }
+}
+
+function splitStructuralLines(rawText: string): string[] {
+    const cleanedText = stripComments(rawText);
+    const result: string[] = [];
+    const rawLines = cleanedText.split('\n');
+
+    for (const rawLine of rawLines) {
+        const trimmed = rawLine.trim();
+        if (!trimmed) continue;
+
+        let current = '';
+        let inQuotes = false;
+        let quoteChar = '';
+        let braceDepth = 0;
+
+        for (let j = 0; j < trimmed.length; j++) {
+            const char = trimmed[j];
+
+            if ((char === '"' || char === "'") && (j === 0 || trimmed[j - 1] !== '\\')) {
+                if (!inQuotes) {
+                    inQuotes = true;
+                    quoteChar = char;
+                } else if (quoteChar === char) {
+                    inQuotes = false;
+                }
+                current += char;
+                continue;
+            }
+
+            if (inQuotes) {
+                current += char;
+                continue;
+            }
+
+            if (char === '{') {
+                current += char;
+                braceDepth++;
+            } else if (char === '}') {
+                if (braceDepth > 1) {
+                    braceDepth--;
+                    current += char;
+                } else if (braceDepth === 1) {
+                    braceDepth--;
+                    current += char;
+                } else {
+                    if (current.trim()) {
+                        result.push(current.trim());
+                        current = '';
+                    }
+                    result.push('}');
+                }
+            } else {
+                current += char;
+            }
+        }
+
+        if (current.trim()) {
+            result.push(current.trim());
+        }
+    }
+
+    return result;
 }
 
 function stripComments(text: string): string {

@@ -8,7 +8,10 @@ if (typeof util.styleText !== 'function') {
 const eslintPkg = require('eslint');
 
 async function main() {
-    const ESLint = typeof eslintPkg.loadESLint === 'function' ? await eslintPkg.loadESLint() : eslintPkg.ESLint;
+    const ESLint =
+        typeof eslintPkg.loadESLint === 'function'
+            ? await eslintPkg.loadESLint()
+            : eslintPkg.ESLint;
     const eslint = new ESLint();
     const args = process.argv.slice(2);
     const patterns = args.length > 0 ? args : ['.'];

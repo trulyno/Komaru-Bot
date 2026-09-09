@@ -382,6 +382,18 @@ you embed {
         assert.strictEqual(testCmdData.options?.length, 1);
         assert.strictEqual(testCmdData.options[0].name, 'role');
     });
+
+    runTestCase('user command parser loop protection on malformed block', () => {
+        const malformed = `
+name "Malformed"
+when someone says "!malformed"
+ponder invalid syntax
+you say "Still works"
+`;
+        const parsed = parseUserCommand(malformed, 'author_mal');
+        assert.strictEqual(parsed.metadata.name, 'Malformed');
+        assert.ok(parsed.actions.length >= 1);
+    });
 }
 
 runTests().catch((err) => {
