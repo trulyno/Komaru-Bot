@@ -19,6 +19,7 @@ export interface LarpUserData {
     bannedUntil: number | null;
     lastLarpAt: number;
     highestTierTriggered: number;
+    silencedAttempts?: number;
 }
 
 export interface LarpJarGuildState {
@@ -33,10 +34,10 @@ export interface LarpJarState {
 
 export const DEFAULT_LARP_TIERS: LarpTier[] = [
     { threshold: 3, durationMs: 1 * 60 * 60 * 1000, durationLabel: '1 hour' },
-    { threshold: 10, durationMs: 2 * 60 * 60 * 1000, durationLabel: '2 hours' },
-    { threshold: 25, durationMs: 4 * 60 * 60 * 1000, durationLabel: '4 hours' },
-    { threshold: 50, durationMs: 8 * 60 * 60 * 1000, durationLabel: '8 hours' },
-    { threshold: 100, durationMs: 12 * 60 * 60 * 1000, durationLabel: '12 hours' },
+    { threshold: 5, durationMs: 4 * 60 * 60 * 1000, durationLabel: '4 hours' },
+    { threshold: 10, durationMs: 8 * 60 * 60 * 1000, durationLabel: '8 hours' },
+    { threshold: 20, durationMs: 12 * 60 * 60 * 1000, durationLabel: '12 hours' },
+    { threshold: 50, durationMs: 24 * 60 * 60 * 1000, durationLabel: '24 hours' },
 ];
 
 export const LARP_REGEX =
@@ -76,10 +77,10 @@ export function calculatePenaltyForThreshold(threshold: number): LarpTier {
         return predefined;
     }
 
-    // Dynamic tiers for threshold > 100: +4 hours for every 50 larps
-    if (threshold > 100) {
-        const extra50s = Math.floor((threshold - 100) / 50);
-        const hours = 12 + Math.max(1, extra50s) * 4;
+    // Dynamic tiers for threshold > 50: +4 hours for every 10 larps
+    if (threshold > 50) {
+        const extra10s = Math.floor((threshold - 50) / 10);
+        const hours = 24 + Math.max(1, extra10s) * 4;
         return {
             threshold,
             durationMs: hours * 60 * 60 * 1000,
@@ -100,9 +101,9 @@ export function getNextThreshold(currentCount: number): number {
             return tier.threshold;
         }
     }
-    // Dynamic higher thresholds (150, 200, 250, ...)
-    const next50 = Math.floor(currentCount / 50) * 50 + 50;
-    return Math.max(150, next50);
+    // Dynamic higher thresholds (60, 70, 80, ...)
+    const next10 = Math.floor(currentCount / 10) * 10 + 10;
+    return Math.max(60, next10);
 }
 
 export function checkThresholdCrossed(
@@ -121,11 +122,11 @@ export function checkThresholdCrossed(
         }
     }
 
-    // Check dynamic higher tiers (> 100)
-    if (newCount > 100) {
-        const dynamicThreshold = Math.floor(newCount / 50) * 50;
+    // Check dynamic higher tiers (> 50, step 10)
+    if (newCount > 50) {
+        const dynamicThreshold = Math.floor(newCount / 10) * 10;
         if (
-            dynamicThreshold > 100 &&
+            dynamicThreshold > 50 &&
             prevCount < dynamicThreshold &&
             dynamicThreshold > highestTierTriggered
         ) {
@@ -202,6 +203,7 @@ export function getLarpUser(
             bannedUntil: null,
             lastLarpAt: 0,
             highestTierTriggered: 0,
+            silencedAttempts: 0,
         };
     }
     return guildState.users[userId];
@@ -209,6 +211,22 @@ export function getLarpUser(
 
 export function isUserSilenced(user: LarpUserData): boolean {
     return Boolean(user.bannedUntil && user.bannedUntil > Date.now());
+}
+
+export function recordSilencedAttempt(
+    guildId: string,
+    userId: string,
+    filePath: string = defaultDataFilePath,
+): { user: LarpUserData; attemptCount: number; shouldSendWarning: boolean } {
+    const user = getLarpUser(guildId, userId, filePath);
+    const count = (user.silencedAttempts || 0) + 1;
+    user.silencedAttempts = count;
+    saveLarpJarState(filePath);
+    return {
+        user,
+        attemptCount: count,
+        shouldSendWarning: count <= 3,
+    };
 }
 
 export function unsilenceUser(
@@ -219,6 +237,7 @@ export function unsilenceUser(
     const user = getLarpUser(guildId, userId, filePath);
     const wasSilenced = isUserSilenced(user);
     user.bannedUntil = null;
+    user.silencedAttempts = 0;
     saveLarpJarState(filePath);
     return { success: true, wasSilenced, user };
 }
@@ -262,6 +281,7 @@ export function recordLarp(
     if (tier) {
         user.bannedUntil = Date.now() + tier.durationMs;
         user.highestTierTriggered = tier.threshold;
+        user.silencedAttempts = 0;
     }
 
     saveLarpJarState(filePath);
@@ -353,78 +373,78 @@ export function getRandomSilencedAttemptMessage(
     return messages[Math.floor(Math.random() * messages.length)];
 }
 
-export async function sendLarpJarAuditAlert(
-    guild: any,
-    user: any,
-    channelId: string,
-    content: string,
-    bannedUntil: number,
-    count: number,
-): Promise<void> {
-    const channel = getAuditChannel(guild);
-    if (!channel) return;
+// export async function sendLarpJarAuditAlert(
+//     guild: any,
+//     user: any,
+//     channelId: string,
+//     content: string,
+//     bannedUntil: number,
+//     count: number,
+// ): Promise<void> {
+//     const channel = getAuditChannel(guild);
+//     if (!channel) return;
 
-    try {
-        const remainingUnix = Math.floor(bannedUntil / 1000);
-        const embed = new EmbedBuilder()
-            .setTitle('🏺 Larp Jar: Silenced User Attempt')
-            .setDescription(
-                'A member attempted to say a larp-related word while banned from larping.',
-            )
-            .setColor(Colors.Gold)
-            .addFields(
-                {
-                    name: 'User',
-                    value: `<@${user.id}> (${user.tag || user.username})`,
-                    inline: true,
-                },
-                { name: 'Channel', value: `<#${channelId}>`, inline: true },
-                { name: 'Jar Balance', value: `🪙 **${count}** larps`, inline: true },
-                {
-                    name: 'Silenced Until',
-                    value: `<t:${remainingUnix}:f> (<t:${remainingUnix}:R>)`,
-                },
-                { name: 'Deleted Content', value: content.slice(0, 1000) || '*No content*' },
-            )
-            .setTimestamp();
+//     try {
+//         const remainingUnix = Math.floor(bannedUntil / 1000);
+//         const embed = new EmbedBuilder()
+//             .setTitle('🏺 Larp Jar: Silenced User Attempt')
+//             .setDescription(
+//                 'A member attempted to say a larp-related word while banned from larping.',
+//             )
+//             .setColor(Colors.Gold)
+//             .addFields(
+//                 {
+//                     name: 'User',
+//                     value: `<@${user.id}> (${user.tag || user.username})`,
+//                     inline: true,
+//                 },
+//                 { name: 'Channel', value: `<#${channelId}>`, inline: true },
+//                 { name: 'Jar Balance', value: `🪙 **${count}** larps`, inline: true },
+//                 {
+//                     name: 'Silenced Until',
+//                     value: `<t:${remainingUnix}:f> (<t:${remainingUnix}:R>)`,
+//                 },
+//                 { name: 'Deleted Content', value: content.slice(0, 1000) || '*No content*' },
+//             )
+//             .setTimestamp();
 
-        await channel.send({ embeds: [embed] });
-    } catch (error) {
-        logger.error(`Failed to send Larp Jar audit alert in guild ${guild.id}: ${error}`);
-    }
-}
+//         await channel.send({ embeds: [embed] });
+//     } catch (error) {
+//         logger.error(`Failed to send Larp Jar audit alert in guild ${guild.id}: ${error}`);
+//     }
+// }
 
-export async function sendLarpJarUnsilenceAuditLog(
-    guild: any,
-    targetUser: any,
-    moderator: any,
-    reason?: string,
-): Promise<void> {
-    const channel = getAuditChannel(guild);
-    if (!channel) return;
+// export async function sendLarpJarUnsilenceAuditLog(
+//     guild: any,
+//     targetUser: any,
+//     moderator: any,
+//     reason?: string,
+// ): Promise<void> {
+//     const channel = getAuditChannel(guild);
+//     if (!channel) return;
 
-    try {
-        const embed = new EmbedBuilder()
-            .setTitle('🏺 Larp Jar: Member Unsilenced')
-            .setDescription(`A staff member removed the Larp Jar silence for <@${targetUser.id}>.`)
-            .setColor(Colors.Green)
-            .addFields(
-                {
-                    name: 'User',
-                    value: `<@${targetUser.id}> (${targetUser.tag || targetUser.username})`,
-                    inline: true,
-                },
-                {
-                    name: 'Moderator',
-                    value: `<@${moderator.id}> (${moderator.tag || moderator.username})`,
-                    inline: true,
-                },
-                { name: 'Reason', value: reason || 'No reason provided' },
-            )
-            .setTimestamp();
+//     try {
+//         const embed = new EmbedBuilder()
+//             .setTitle('🏺 Larp Jar: Member Unsilenced')
+//             .setDescription(`A staff member removed the Larp Jar silence for <@${targetUser.id}>.`)
+//             .setColor(Colors.Green)
+//             .addFields(
+//                 {
+//                     name: 'User',
+//                     value: `<@${targetUser.id}> (${targetUser.tag || targetUser.username})`,
+//                     inline: true,
+//                 },
+//                 {
+//                     name: 'Moderator',
+//                     value: `<@${moderator.id}> (${moderator.tag || moderator.username})`,
+//                     inline: true,
+//                 },
+//                 { name: 'Reason', value: reason || 'No reason provided' },
+//             )
+//             .setTimestamp();
 
-        await channel.send({ embeds: [embed] });
-    } catch (error) {
-        logger.error(`Failed to send Larp Jar unsilence audit log in guild ${guild.id}: ${error}`);
-    }
-}
+//         await channel.send({ embeds: [embed] });
+//     } catch (error) {
+//         logger.error(`Failed to send Larp Jar unsilence audit log in guild ${guild.id}: ${error}`);
+//     }
+// }

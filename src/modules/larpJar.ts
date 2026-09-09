@@ -14,8 +14,7 @@ import {
     getRandomThresholdMessage,
     isUserSilenced,
     recordLarp,
-    sendLarpJarAuditAlert,
-    sendLarpJarUnsilenceAuditLog,
+    recordSilencedAttempt,
     unsilenceUser,
 } from '../services/larpJarService';
 import { config } from '../config';
@@ -33,18 +32,18 @@ const moduleDefinition: BotModule = {
         commands: [
             {
                 name: 'larp_leaderboard',
-                description: 'View top larpers and most fined users in this server',
-                usage: '/larp_leaderboard [limit:number]',
+                description: 'View the server Larp Jar leaderboard and top larpers',
+                usage: '/larp_leaderboard',
             },
             {
                 name: 'larp_stats',
-                description: 'View personal or user larp statistics and fines',
+                description: 'Check personal or another member’s Larp Jar statistics',
                 usage: '/larp_stats [user:user]',
             },
             {
                 name: 'larp_unsilence',
-                description: 'Moderator command to unsilence a penalized user',
-                usage: '/larp_unsilence <user:user>',
+                description: 'Remove a user’s Larp Jar silence cooldown (Moderator only)',
+                usage: '/larp_unsilence <user:user> [reason:string]',
             },
         ],
         examples: ['/larp_leaderboard', '/larp_stats', '/larp_unsilence user:@Member'],
@@ -52,22 +51,16 @@ const moduleDefinition: BotModule = {
     register: async (client: any) => {
         client.on('messageCreate', async (message: any) => {
             try {
-                if (!message || !message.guild || message.author?.bot) {
-                    return;
-                }
+                if (!message || message.author?.bot) return;
+                if (!message.guild) return;
 
                 if (
-                    !config.modules.isModuleEnabled(
-                        'larpJar',
-                        message.guild.id,
-                        message.channel?.id,
-                    )
+                    !config.modules.isModuleEnabled('larpJar', message.guild.id, message.channel?.id)
                 ) {
                     return;
                 }
 
-                const content = message.content ?? '';
-
+                const content = message.content || '';
                 if (!containsLarpWord(content)) {
                     return;
                 }
@@ -92,31 +85,26 @@ const moduleDefinition: BotModule = {
                         logger.warn(`Failed to delete larp message from silenced user: ${error}`);
                     }
 
-                    await sendLarpJarAuditAlert(
-                        message.guild,
-                        message.author,
-                        message.channel.id,
-                        content,
-                        user.bannedUntil!,
-                        user.count,
-                    );
+                    const { shouldSendWarning } = recordSilencedAttempt(guildId, userId);
 
-                    try {
-                        const remainingMs = user.bannedUntil! - Date.now();
-                        const warningContent = getRandomSilencedAttemptMessage(
-                            displayName,
-                            remainingMs,
-                        );
-                        const warningMsg = await message.channel.send({
-                            content: warningContent,
-                            allowedMentions: { parse: [], users: [], roles: [] },
-                        });
+                    if (shouldSendWarning) {
+                        try {
+                            const remainingMs = user.bannedUntil! - Date.now();
+                            const warningContent = getRandomSilencedAttemptMessage(
+                                displayName,
+                                remainingMs,
+                            );
+                            const warningMsg = await message.channel.send({
+                                content: warningContent,
+                                allowedMentions: { parse: [], users: [], roles: [] },
+                            });
 
-                        setTimeout(() => {
-                            warningMsg.delete().catch(() => undefined);
-                        }, 5000);
-                    } catch (sendErr) {
-                        logger.warn(`Failed to send silenced larp notice: ${sendErr}`);
+                            setTimeout(() => {
+                                warningMsg.delete().catch(() => undefined);
+                            }, 5000);
+                        } catch (sendErr) {
+                            logger.warn(`Failed to send silenced larp notice: ${sendErr}`);
+                        }
                     }
                     return;
                 }
@@ -317,13 +305,6 @@ const moduleDefinition: BotModule = {
                     });
                     return;
                 }
-
-                await sendLarpJarUnsilenceAuditLog(
-                    interaction.guild,
-                    targetUser,
-                    interaction.user,
-                    reason,
-                );
 
                 await interaction.reply({
                     content: `✅ Successfully removed the Larp Jar silence for **${displayName}**.\n*Reason:* ${reason}`,

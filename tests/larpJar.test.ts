@@ -16,6 +16,7 @@ import {
     getRandomThresholdMessage,
     isUserSilenced,
     recordLarp,
+    recordSilencedAttempt,
     setDefaultDataFilePath,
     unsilenceUser,
 } from '../src/services/larpJarService';
@@ -74,42 +75,46 @@ async function runLarpJarTests(): Promise<void> {
         assert.strictEqual(tier3.durationMs, 1 * 3600 * 1000);
         assert.strictEqual(tier3.durationLabel, '1 hour');
 
-        const tier10 = calculatePenaltyForThreshold(10);
-        assert.strictEqual(tier10.durationMs, 2 * 3600 * 1000);
-        assert.strictEqual(tier10.durationLabel, '2 hours');
+        const tier5 = calculatePenaltyForThreshold(5);
+        assert.strictEqual(tier5.durationMs, 4 * 3600 * 1000);
+        assert.strictEqual(tier5.durationLabel, '4 hours');
 
-        const tier25 = calculatePenaltyForThreshold(25);
-        assert.strictEqual(tier25.durationMs, 4 * 3600 * 1000);
-        assert.strictEqual(tier25.durationLabel, '4 hours');
+        const tier10 = calculatePenaltyForThreshold(10);
+        assert.strictEqual(tier10.durationMs, 8 * 3600 * 1000);
+        assert.strictEqual(tier10.durationLabel, '8 hours');
+
+        const tier20 = calculatePenaltyForThreshold(20);
+        assert.strictEqual(tier20.durationMs, 12 * 3600 * 1000);
+        assert.strictEqual(tier20.durationLabel, '12 hours');
 
         const tier50 = calculatePenaltyForThreshold(50);
-        assert.strictEqual(tier50.durationMs, 8 * 3600 * 1000);
-        assert.strictEqual(tier50.durationLabel, '8 hours');
+        assert.strictEqual(tier50.durationMs, 24 * 3600 * 1000);
+        assert.strictEqual(tier50.durationLabel, '24 hours');
 
-        const tier100 = calculatePenaltyForThreshold(100);
-        assert.strictEqual(tier100.durationMs, 12 * 3600 * 1000);
-        assert.strictEqual(tier100.durationLabel, '12 hours');
+        // Dynamic tier beyond 50 (e.g. 60 -> 28h, 70 -> 32h)
+        const tier60 = calculatePenaltyForThreshold(60);
+        assert.strictEqual(tier60.durationMs, 28 * 3600 * 1000);
+        assert.strictEqual(tier60.durationLabel, '28 hours');
 
-        // Dynamic tier beyond 100 (e.g. 150 -> 16h, 200 -> 20h)
-        const tier150 = calculatePenaltyForThreshold(150);
-        assert.strictEqual(tier150.durationMs, 16 * 3600 * 1000);
-        assert.strictEqual(tier150.durationLabel, '16 hours');
-
-        const tier200 = calculatePenaltyForThreshold(200);
-        assert.strictEqual(tier200.durationMs, 20 * 3600 * 1000);
-        assert.strictEqual(tier200.durationLabel, '20 hours');
+        const tier70 = calculatePenaltyForThreshold(70);
+        assert.strictEqual(tier70.durationMs, 32 * 3600 * 1000);
+        assert.strictEqual(tier70.durationLabel, '32 hours');
     });
 
     await runTestCase('next threshold progression', () => {
         assert.strictEqual(getNextThreshold(0), 3);
         assert.strictEqual(getNextThreshold(2), 3);
-        assert.strictEqual(getNextThreshold(3), 10);
+        assert.strictEqual(getNextThreshold(3), 5);
+        assert.strictEqual(getNextThreshold(4), 5);
+        assert.strictEqual(getNextThreshold(5), 10);
         assert.strictEqual(getNextThreshold(9), 10);
-        assert.strictEqual(getNextThreshold(10), 25);
-        assert.strictEqual(getNextThreshold(25), 50);
-        assert.strictEqual(getNextThreshold(50), 100);
-        assert.strictEqual(getNextThreshold(100), 150);
-        assert.strictEqual(getNextThreshold(120), 150);
+        assert.strictEqual(getNextThreshold(10), 20);
+        assert.strictEqual(getNextThreshold(19), 20);
+        assert.strictEqual(getNextThreshold(20), 50);
+        assert.strictEqual(getNextThreshold(49), 50);
+        assert.strictEqual(getNextThreshold(50), 60);
+        assert.strictEqual(getNextThreshold(55), 60);
+        assert.strictEqual(getNextThreshold(60), 70);
     });
 
     await runTestCase('checkThresholdCrossed checks', () => {
@@ -121,10 +126,51 @@ async function runLarpJarTests(): Promise<void> {
         const noCross = checkThresholdCrossed(3, 4, 3);
         assert.strictEqual(noCross, null);
 
-        // Crossing to 10
-        const crossed10 = checkThresholdCrossed(9, 10, 3);
-        assert.ok(crossed10);
-        assert.strictEqual(crossed10.threshold, 10);
+        // Crossing to 5
+        const crossed5 = checkThresholdCrossed(4, 5, 3);
+        assert.ok(crossed5);
+        assert.strictEqual(crossed5.threshold, 5);
+    });
+
+    await runTestCase('silenced attempts 3-attempt limit and reset', () => {
+        const guildId = 'guild_silence_limit';
+        const userId = 'user_spammer';
+
+        // User gets silenced at threshold 3
+        recordLarp(guildId, userId, 'spammer', 'Spammer', 3);
+        const user = getLarpUser(guildId, userId);
+        assert.strictEqual(isUserSilenced(user), true);
+        assert.strictEqual(user.silencedAttempts, 0);
+
+        // 1st attempt: should send warning
+        const att1 = recordSilencedAttempt(guildId, userId);
+        assert.strictEqual(att1.attemptCount, 1);
+        assert.strictEqual(att1.shouldSendWarning, true);
+
+        // 2nd attempt: should send warning
+        const att2 = recordSilencedAttempt(guildId, userId);
+        assert.strictEqual(att2.attemptCount, 2);
+        assert.strictEqual(att2.shouldSendWarning, true);
+
+        // 3rd attempt: should send warning
+        const att3 = recordSilencedAttempt(guildId, userId);
+        assert.strictEqual(att3.attemptCount, 3);
+        assert.strictEqual(att3.shouldSendWarning, true);
+
+        // 4th attempt: SILENT delete (no message sent)
+        const att4 = recordSilencedAttempt(guildId, userId);
+        assert.strictEqual(att4.attemptCount, 4);
+        assert.strictEqual(att4.shouldSendWarning, false);
+
+        // 5th attempt: SILENT delete (no message sent)
+        const att5 = recordSilencedAttempt(guildId, userId);
+        assert.strictEqual(att5.attemptCount, 5);
+        assert.strictEqual(att5.shouldSendWarning, false);
+
+        // Unsilencing resets attempts
+        unsilenceUser(guildId, userId);
+        const unsilencedUser = getLarpUser(guildId, userId);
+        assert.strictEqual(unsilencedUser.silencedAttempts, 0);
     });
 
     await runTestCase('state management, larp recording and timeout activation', () => {
