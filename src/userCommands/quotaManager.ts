@@ -15,6 +15,10 @@ export class QuotaManager {
         private storage: UserCommandStorage,
     ) {}
 
+    public getConfigStore(): ConfigStore {
+        return this.configStore;
+    }
+
     public getUserMaxStorageBytes(member: any): number {
         const quotas = this.configStore.getRoleQuotas();
         let totalMb = quotas.default ?? 5; // Base 5MB

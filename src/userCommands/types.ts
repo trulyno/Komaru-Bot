@@ -6,10 +6,21 @@ export interface UserCommandMetadata {
     description: string;
     raw: string;
     cooldown?: number;
+    category?: string;
     roles?: string[];
     channels?: string[];
     enabled?: boolean;
     lastUsed?: Record<string, number>; // timestamp per user or global
+}
+
+export interface UserCommandCategory {
+    name: string;
+    description?: string;
+}
+
+export interface ChannelCommandConfig {
+    timeoutSeconds?: number;
+    allowedCategories?: string[]; // e.g. ['General', 'Fun'] or ['*'] for all
 }
 
 export type TriggerType = 'string' | 'regex';

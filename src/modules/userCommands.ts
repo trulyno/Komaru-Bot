@@ -8,11 +8,12 @@ import { TriggerPool } from '../userCommands/triggerPool';
 import { getHelpTopicEmbed } from '../userCommands/helpProvider';
 import { UserCommandTrigger } from '../userCommands/types';
 import { config } from '../config';
+import { sendAuditLog } from '../services/auditLogService';
 
 const storage = new UserCommandStorage();
 const configStore = new ConfigStore();
 const quotaManager = new QuotaManager(configStore, storage);
-const triggerPool = new TriggerPool(storage);
+const triggerPool = new TriggerPool(storage, configStore);
 const sessionManager = new SessionManager(storage, triggerPool, quotaManager);
 
 // Initialize trigger pool from storage
@@ -810,6 +811,588 @@ const moduleDefinition: BotModule = {
             },
         });
 
+        // -------------------------------------------------------------
+        // Creator Approvals & Governance Slash Commands
+        // -------------------------------------------------------------
+        commandRegistry.register({
+            name: 'usercmd_creator_approve',
+            description: '[Admin] Add a user to the approved command creators whitelist',
+            options: [{ name: 'user', description: 'Target user', type: 6, required: true }],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const targetUser = interaction.options?.getUser?.('user');
+                if (!targetUser) {
+                    await interaction.reply({
+                        content: 'Usage: /usercmd_creator_approve <user>',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                configStore.addApprovedCreator(targetUser.id);
+                await sendAuditLog(
+                    interaction.guild,
+                    'User Command Creator Approved',
+                    `User <@${targetUser.id}> was approved to create commands without admin review by <@${interaction.user.id}>.`,
+                    [
+                        { name: 'User', value: `<@${targetUser.id}> (${targetUser.id})` },
+                        { name: 'Approved By', value: `<@${interaction.user.id}>` },
+                    ],
+                );
+                await interaction.reply({
+                    content: `✅ <@${targetUser.id}> added to approved command creators. Their commands will now be enabled immediately.`,
+                    ephemeral: true,
+                });
+            },
+        });
+
+        commandRegistry.register({
+            name: 'usercmd_creator_revoke',
+            description: '[Admin] Remove a user from the approved command creators whitelist',
+            options: [{ name: 'user', description: 'Target user', type: 6, required: true }],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const targetUser = interaction.options?.getUser?.('user');
+                if (!targetUser) {
+                    await interaction.reply({
+                        content: 'Usage: /usercmd_creator_revoke <user>',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const removed = configStore.removeApprovedCreator(targetUser.id);
+                if (removed) {
+                    await sendAuditLog(
+                        interaction.guild,
+                        'User Command Creator Revoked',
+                        `User <@${targetUser.id}> had approved creator status revoked by <@${interaction.user.id}>.`,
+                        [
+                            { name: 'User', value: `<@${targetUser.id}> (${targetUser.id})` },
+                            { name: 'Revoked By', value: `<@${interaction.user.id}>` },
+                        ],
+                    );
+                    await interaction.reply({
+                        content: `✅ Removed <@${targetUser.id}> from approved command creators.`,
+                        ephemeral: true,
+                    });
+                } else {
+                    await interaction.reply({
+                        content: `<@${targetUser.id}> was not on the approved creators list.`,
+                        ephemeral: true,
+                    });
+                }
+            },
+        });
+
+        commandRegistry.register({
+            name: 'usercmd_creator_list',
+            description: 'List all approved user command creators',
+            handler: async (interaction: any) => {
+                const creators = configStore.getApprovedCreators();
+                if (creators.length === 0) {
+                    await interaction.reply({
+                        content: 'There are currently no approved command creators.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const listStr = creators.map((id) => `- <@${id}> (\`${id}\`)`).join('\n');
+                await interaction.reply({
+                    content: `**Approved Command Creators (${creators.length} total):**\n${listStr}`,
+                    ephemeral: true,
+                });
+            },
+        });
+
+        // -------------------------------------------------------------
+        // Command Review Queue & Enable / Disable
+        // -------------------------------------------------------------
+        commandRegistry.register({
+            name: 'usercmd_review_list',
+            description: '[Admin] List user commands awaiting admin review and approval',
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const allCmds = storage.loadAllCommands();
+                const pending = allCmds.filter((c) => c.metadata.enabled === false);
+
+                if (pending.length === 0) {
+                    await interaction.reply({
+                        content: '✅ There are no pending commands awaiting review.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const listStr = pending
+                    .map(
+                        (c) =>
+                            `- **${c.metadata.name}** [${c.metadata.category || 'General'}] by <@${c.metadata.author}> | Trigger: \`${c.trigger.value}\``,
+                    )
+                    .join('\n');
+
+                await interaction.reply({
+                    content: `**Pending Commands Awaiting Review (${pending.length}):**\n${listStr}\n\n*Use \`/usercmd_enable name:<name>\` to approve, or \`/cmd_delete name:<name>\` to reject.*`,
+                    ephemeral: true,
+                });
+            },
+        });
+
+        commandRegistry.register({
+            name: 'usercmd_enable',
+            description: '[Admin] Enable or approve a user command',
+            options: [{ name: 'name', description: 'Command name', type: 3, required: true }],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const name = interaction.options?.getString?.('name');
+                if (!name) {
+                    await interaction.reply({
+                        content: 'Usage: /usercmd_enable <name>',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const cmd = storage.getCommand(name);
+                if (!cmd) {
+                    await interaction.reply({
+                        content: `Command **${name}** not found.`,
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                cmd.metadata.enabled = true;
+                const rawDef = storage.getRawCommand(name) || '';
+                storage.saveCommand(cmd, rawDef);
+                triggerPool.registerCommand(cmd);
+
+                await sendAuditLog(
+                    interaction.guild,
+                    'User Command Approved / Enabled',
+                    `User command **${cmd.metadata.name}** was approved and enabled by <@${interaction.user.id}>.`,
+                    [
+                        { name: 'Command', value: `**${cmd.metadata.name}**` },
+                        { name: 'Category', value: cmd.metadata.category || 'General' },
+                        { name: 'Author', value: `<@${cmd.metadata.author}>` },
+                        { name: 'Enabled By', value: `<@${interaction.user.id}>` },
+                    ],
+                );
+
+                await interaction.reply({
+                    content: `✅ Command **${cmd.metadata.name}** has been approved and enabled!`,
+                    ephemeral: true,
+                });
+            },
+        });
+
+        commandRegistry.register({
+            name: 'usercmd_disable',
+            description: '[Admin] Disable an active user command',
+            options: [{ name: 'name', description: 'Command name', type: 3, required: true }],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const name = interaction.options?.getString?.('name');
+                if (!name) {
+                    await interaction.reply({
+                        content: 'Usage: /usercmd_disable <name>',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const cmd = storage.getCommand(name);
+                if (!cmd) {
+                    await interaction.reply({
+                        content: `Command **${name}** not found.`,
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                cmd.metadata.enabled = false;
+                const rawDef = storage.getRawCommand(name) || '';
+                storage.saveCommand(cmd, rawDef);
+                triggerPool.registerCommand(cmd);
+
+                await sendAuditLog(
+                    interaction.guild,
+                    'User Command Disabled',
+                    `User command **${cmd.metadata.name}** was disabled by <@${interaction.user.id}>.`,
+                    [
+                        { name: 'Command', value: `**${cmd.metadata.name}**` },
+                        { name: 'Disabled By', value: `<@${interaction.user.id}>` },
+                    ],
+                );
+
+                await interaction.reply({
+                    content: `⚠️ Command **${cmd.metadata.name}** has been disabled.`,
+                    ephemeral: true,
+                });
+            },
+        });
+
+        // -------------------------------------------------------------
+        // Category Management Slash Commands
+        // -------------------------------------------------------------
+        commandRegistry.register({
+            name: 'usercmd_category_list',
+            description: 'List all registered user command categories',
+            handler: async (interaction: any) => {
+                const categories = configStore.getCategories();
+                const listStr = categories
+                    .map((c) => `- **${c.name}**: ${c.description || 'No description'}`)
+                    .join('\n');
+                await interaction.reply({
+                    content: `**User Command Categories (${categories.length} total):**\n${listStr}`,
+                    ephemeral: true,
+                });
+            },
+        });
+
+        commandRegistry.register({
+            name: 'usercmd_category_add',
+            description: '[Admin] Add a new user command category',
+            options: [
+                { name: 'name', description: 'Category name', type: 3, required: true },
+                {
+                    name: 'description',
+                    description: 'Category description',
+                    type: 3,
+                    required: false,
+                },
+            ],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const name = interaction.options?.getString?.('name');
+                const desc = interaction.options?.getString?.('description');
+
+                if (!name) {
+                    await interaction.reply({
+                        content: 'Usage: /usercmd_category_add <name> [description]',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const added = configStore.addCategory(name, desc);
+                if (added) {
+                    await interaction.reply({
+                        content: `✅ Category **${name}** added successfully.`,
+                        ephemeral: true,
+                    });
+                } else {
+                    await interaction.reply({
+                        content: `❌ Category **${name}** already exists.`,
+                        ephemeral: true,
+                    });
+                }
+            },
+        });
+
+        commandRegistry.register({
+            name: 'usercmd_category_remove',
+            description: '[Admin] Remove an existing user command category',
+            options: [{ name: 'name', description: 'Category name', type: 3, required: true }],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const name = interaction.options?.getString?.('name');
+                if (!name) {
+                    await interaction.reply({
+                        content: 'Usage: /usercmd_category_remove <name>',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const removed = configStore.removeCategory(name);
+                if (removed) {
+                    await interaction.reply({
+                        content: `✅ Category **${name}** removed successfully.`,
+                        ephemeral: true,
+                    });
+                } else {
+                    await interaction.reply({
+                        content: `❌ Cannot remove category **${name}** (either does not exist or is protected default General).`,
+                        ephemeral: true,
+                    });
+                }
+            },
+        });
+
+        // -------------------------------------------------------------
+        // Channel Timeout & Category Controls Slash Commands
+        // -------------------------------------------------------------
+        commandRegistry.register({
+            name: 'usercmd_channel_timeout',
+            description: '[Admin] Configure or view channel-wide execution timeout',
+            options: [
+                {
+                    name: 'channel',
+                    description: 'Target channel (defaults to current)',
+                    type: 7,
+                    required: false,
+                },
+                {
+                    name: 'seconds',
+                    description: 'Execution timeout in seconds (0 to disable)',
+                    type: 4,
+                    required: false,
+                },
+            ],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const targetChannel =
+                    interaction.options?.getChannel?.('channel') || interaction.channel;
+                const seconds = interaction.options?.getInteger?.('seconds');
+
+                if (seconds !== null && seconds !== undefined) {
+                    configStore.setChannelTimeout(targetChannel.id, seconds);
+                    await interaction.reply({
+                        content: `✅ Channel-wide command timeout for <#${targetChannel.id}> set to **${seconds}s** ${seconds === 0 ? '(disabled)' : ''}.`,
+                        ephemeral: true,
+                    });
+                } else {
+                    const cfg = configStore.getChannelConfig(targetChannel.id);
+                    const current = cfg.timeoutSeconds ?? 0;
+                    await interaction.reply({
+                        content: `Channel-wide command timeout for <#${targetChannel.id}> is currently **${current}s** ${current === 0 ? '(disabled)' : ''}.`,
+                        ephemeral: true,
+                    });
+                }
+            },
+        });
+
+        commandRegistry.register({
+            name: 'usercmd_channel_categories',
+            description: '[Admin] Restrict or allow specific command categories in a channel',
+            options: [
+                {
+                    name: 'channel',
+                    description: 'Target channel (defaults to current)',
+                    type: 7,
+                    required: false,
+                },
+                {
+                    name: 'categories',
+                    description: 'Comma-separated allowed categories (or * for all)',
+                    type: 3,
+                    required: false,
+                },
+            ],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const targetChannel =
+                    interaction.options?.getChannel?.('channel') || interaction.channel;
+                const catStr = interaction.options?.getString?.('categories');
+
+                if (catStr !== null && catStr !== undefined) {
+                    const cleanList = catStr
+                        .split(',')
+                        .map((s: string) => s.trim())
+                        .filter((s: string) => s.length > 0);
+                    configStore.setChannelAllowedCategories(targetChannel.id, cleanList);
+                    await interaction.reply({
+                        content: `✅ Allowed command categories for <#${targetChannel.id}> set to: **${cleanList.join(', ')}**.`,
+                        ephemeral: true,
+                    });
+                } else {
+                    const cfg = configStore.getChannelConfig(targetChannel.id);
+                    const allowed = cfg.allowedCategories || ['* (All categories allowed)'];
+                    await interaction.reply({
+                        content: `Allowed command categories for <#${targetChannel.id}>: **${allowed.join(', ')}**.`,
+                        ephemeral: true,
+                    });
+                }
+            },
+        });
+
+        commandRegistry.register({
+            name: 'usercmd_creation_channels',
+            description: '[Admin] View or configure channels where command creation is allowed',
+            options: [
+                {
+                    name: 'channels',
+                    description:
+                        'Comma-separated channels (e.g. #bot-commands, 123456) or * for all channels',
+                    type: 3,
+                    required: false,
+                },
+                {
+                    name: 'action',
+                    description: 'Action to perform: set | add | remove | clear | list',
+                    type: 3,
+                    required: false,
+                    choices: [
+                        { name: 'list', value: 'list' },
+                        { name: 'set', value: 'set' },
+                        { name: 'add', value: 'add' },
+                        { name: 'remove', value: 'remove' },
+                        { name: 'clear', value: 'clear' },
+                    ],
+                },
+            ],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const action = interaction.options?.getString?.('action')?.toLowerCase() || 'set';
+                const channelsStr = interaction.options?.getString?.('channels');
+
+                if (action === 'clear' || (channelsStr && channelsStr.trim() === '*')) {
+                    configStore.clearAllowedCreationChannels();
+                    await interaction.reply({
+                        content: '✅ Command creation is now allowed in **all channels**.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (action === 'list' || (!channelsStr && action === 'set')) {
+                    const current = configStore.formatAllowedCreationChannels();
+                    await interaction.reply({
+                        content: `User command creation is currently allowed in: **${current}**.`,
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (channelsStr) {
+                    const cleanList = channelsStr
+                        .split(',')
+                        .map((s: string) => s.trim())
+                        .filter((s: string) => s.length > 0);
+
+                    if (action === 'add') {
+                        for (const ch of cleanList) {
+                            configStore.addAllowedCreationChannel(ch);
+                        }
+                        const updated = configStore.formatAllowedCreationChannels();
+                        await interaction.reply({
+                            content: `✅ Added channels. Command creation allowed in: **${updated}**.`,
+                            ephemeral: true,
+                        });
+                    } else if (action === 'remove') {
+                        for (const ch of cleanList) {
+                            configStore.removeAllowedCreationChannel(ch);
+                        }
+                        const updated = configStore.formatAllowedCreationChannels();
+                        await interaction.reply({
+                            content: `✅ Removed channels. Command creation allowed in: **${updated}**.`,
+                            ephemeral: true,
+                        });
+                    } else {
+                        // set
+                        configStore.setAllowedCreationChannels(cleanList);
+                        const updated = configStore.formatAllowedCreationChannels();
+                        await interaction.reply({
+                            content: `✅ Allowed command creation channels set to: **${updated}**.`,
+                            ephemeral: true,
+                        });
+                    }
+                }
+            },
+        });
+
         logger.info('Registered userCommands module listeners, utilities, and admin commands.');
     },
 };
@@ -1161,6 +1744,288 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             const quotas = configStore.getRoleQuotas();
             const lines = Object.entries(quotas).map(([k, v]) => `- **${k}**: ${v} MB`);
             await message.reply(`**Role-Based Storage Quota Config:**\n${lines.join('\n')}`);
+            return true;
+        }
+        case 'usercmd_creator_approve':
+        case 'approve_creator': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            if (!arg1) return false;
+            const targetId = extractUserIdFromMention(arg1);
+            configStore.addApprovedCreator(targetId);
+            await sendAuditLog(
+                message.guild,
+                'User Command Creator Approved',
+                `User <@${targetId}> was approved to create commands without review by <@${userId}>.`,
+                [
+                    { name: 'User', value: `<@${targetId}> (${targetId})` },
+                    { name: 'Approved By', value: `<@${userId}>` },
+                ],
+            );
+            await message.reply(`✅ Added <@${targetId}> to approved user command creators.`);
+            return true;
+        }
+        case 'usercmd_creator_revoke':
+        case 'revoke_creator': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            if (!arg1) return false;
+            const targetId = extractUserIdFromMention(arg1);
+            const removed = configStore.removeApprovedCreator(targetId);
+            if (removed) {
+                await sendAuditLog(
+                    message.guild,
+                    'User Command Creator Revoked',
+                    `User <@${targetId}> had approved creator status revoked by <@${userId}>.`,
+                    [
+                        { name: 'User', value: `<@${targetId}> (${targetId})` },
+                        { name: 'Revoked By', value: `<@${userId}>` },
+                    ],
+                );
+                await message.reply(`✅ Removed <@${targetId}> from approved command creators.`);
+            } else {
+                await message.reply(`<@${targetId}> was not on the approved creators list.`);
+            }
+            return true;
+        }
+        case 'usercmd_creator_list':
+        case 'approved_creators': {
+            const creators = configStore.getApprovedCreators();
+            if (creators.length === 0) {
+                await message.reply('There are currently no approved command creators.');
+            } else {
+                const listStr = creators.map((id) => `- <@${id}> (\`${id}\`)`).join('\n');
+                await message.reply(
+                    `**Approved Command Creators (${creators.length} total):**\n${listStr}`,
+                );
+            }
+            return true;
+        }
+        case 'usercmd_review_list':
+        case 'cmd_reviews': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            const allCmds = storage.loadAllCommands();
+            const pending = allCmds.filter((c) => c.metadata.enabled === false);
+            if (pending.length === 0) {
+                await message.reply('✅ There are no pending commands awaiting review.');
+            } else {
+                const listStr = pending
+                    .map(
+                        (c) =>
+                            `- **${c.metadata.name}** [${c.metadata.category || 'General'}] by <@${c.metadata.author}> | Trigger: \`${c.trigger.value}\``,
+                    )
+                    .join('\n');
+                await message.reply(
+                    `**Pending Commands Awaiting Review (${pending.length}):**\n${listStr}`,
+                );
+            }
+            return true;
+        }
+        case 'usercmd_enable':
+        case 'enable_cmd': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            if (!arg1) return false;
+            const cmd = storage.getCommand(arg1);
+            if (!cmd) {
+                await message.reply(`Command **${arg1}** not found.`);
+                return true;
+            }
+            cmd.metadata.enabled = true;
+            const rawDef = storage.getRawCommand(arg1) || '';
+            storage.saveCommand(cmd, rawDef);
+            triggerPool.registerCommand(cmd);
+            await sendAuditLog(
+                message.guild,
+                'User Command Approved / Enabled',
+                `User command **${cmd.metadata.name}** was approved and enabled by <@${userId}>.`,
+                [
+                    { name: 'Command', value: `**${cmd.metadata.name}**` },
+                    { name: 'Category', value: cmd.metadata.category || 'General' },
+                    { name: 'Author', value: `<@${cmd.metadata.author}>` },
+                    { name: 'Enabled By', value: `<@${userId}>` },
+                ],
+            );
+            await message.reply(
+                `✅ Command **${cmd.metadata.name}** has been approved and enabled!`,
+            );
+            return true;
+        }
+        case 'usercmd_disable':
+        case 'disable_cmd': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            if (!arg1) return false;
+            const cmd = storage.getCommand(arg1);
+            if (!cmd) {
+                await message.reply(`Command **${arg1}** not found.`);
+                return true;
+            }
+            cmd.metadata.enabled = false;
+            const rawDef = storage.getRawCommand(arg1) || '';
+            storage.saveCommand(cmd, rawDef);
+            triggerPool.registerCommand(cmd);
+            await sendAuditLog(
+                message.guild,
+                'User Command Disabled',
+                `User command **${cmd.metadata.name}** was disabled by <@${userId}>.`,
+                [
+                    { name: 'Command', value: `**${cmd.metadata.name}**` },
+                    { name: 'Disabled By', value: `<@${userId}>` },
+                ],
+            );
+            await message.reply(`⚠️ Command **${cmd.metadata.name}** has been disabled.`);
+            return true;
+        }
+        case 'usercmd_category_list':
+        case 'cmd_categories': {
+            const categories = configStore.getCategories();
+            const listStr = categories
+                .map((c) => `- **${c.name}**: ${c.description || 'No description'}`)
+                .join('\n');
+            await message.reply(
+                `**User Command Categories (${categories.length} total):**\n${listStr}`,
+            );
+            return true;
+        }
+        case 'usercmd_category_add': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            if (!arg1) return false;
+            const added = configStore.addCategory(arg1, restArgs);
+            if (added) {
+                await message.reply(`✅ Category **${arg1}** added successfully.`);
+            } else {
+                await message.reply(`❌ Category **${arg1}** already exists.`);
+            }
+            return true;
+        }
+        case 'usercmd_category_remove': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            if (!arg1) return false;
+            const removed = configStore.removeCategory(arg1);
+            if (removed) {
+                await message.reply(`✅ Category **${arg1}** removed successfully.`);
+            } else {
+                await message.reply(`❌ Cannot remove category **${arg1}**.`);
+            }
+            return true;
+        }
+        case 'usercmd_channel_timeout': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            const chanId = message.channel.id;
+            if (arg1 !== undefined && !isNaN(parseInt(arg1, 10))) {
+                const secs = parseInt(arg1, 10);
+                configStore.setChannelTimeout(chanId, secs);
+                await message.reply(`✅ Channel timeout for <#${chanId}> set to **${secs}s**.`);
+            } else {
+                const cfg = configStore.getChannelConfig(chanId);
+                const current = cfg.timeoutSeconds ?? 0;
+                await message.reply(`Channel timeout for <#${chanId}> is **${current}s**.`);
+            }
+            return true;
+        }
+        case 'usercmd_channel_categories': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            const chanId = message.channel.id;
+            if (arg1) {
+                const cats = [arg1, ...(restArgs ? restArgs.split(/\s+/) : [])];
+                configStore.setChannelAllowedCategories(chanId, cats);
+                await message.reply(
+                    `✅ Allowed categories for <#${chanId}> set to: **${cats.join(', ')}**.`,
+                );
+            } else {
+                const cfg = configStore.getChannelConfig(chanId);
+                const allowed = cfg.allowedCategories || ['*'];
+                await message.reply(
+                    `Allowed categories for <#${chanId}>: **${allowed.join(', ')}**.`,
+                );
+            }
+            return true;
+        }
+        case 'usercmd_creation_channels':
+        case 'creation_channels': {
+            if (!isAdmin && !owner) {
+                await message.reply('❌ Admin permissions required.');
+                return true;
+            }
+            if (!arg1) {
+                const current = configStore.formatAllowedCreationChannels();
+                await message.reply(
+                    `User command creation is currently allowed in: **${current}**.`,
+                );
+                return true;
+            }
+            if (arg1 === 'clear' || arg1 === '*') {
+                configStore.clearAllowedCreationChannels();
+                await message.reply('✅ Command creation is now allowed in **all channels**.');
+                return true;
+            }
+            if (arg1 === 'add') {
+                if (!restArgs) {
+                    await message.reply('Usage: `!usercmd_creation_channels add <channel>`');
+                    return true;
+                }
+                const channels = restArgs
+                    .split(/\s+/)
+                    .map((s: string) => s.trim())
+                    .filter(Boolean);
+                for (const ch of channels) {
+                    configStore.addAllowedCreationChannel(ch);
+                }
+                const updated = configStore.formatAllowedCreationChannels();
+                await message.reply(
+                    `✅ Added channels. Allowed creation channels: **${updated}**.`,
+                );
+                return true;
+            }
+            if (arg1 === 'remove') {
+                if (!restArgs) {
+                    await message.reply('Usage: `!usercmd_creation_channels remove <channel>`');
+                    return true;
+                }
+                const channels = restArgs
+                    .split(/\s+/)
+                    .map((s: string) => s.trim())
+                    .filter(Boolean);
+                for (const ch of channels) {
+                    configStore.removeAllowedCreationChannel(ch);
+                }
+                const updated = configStore.formatAllowedCreationChannels();
+                await message.reply(
+                    `✅ Removed channels. Allowed creation channels: **${updated}**.`,
+                );
+                return true;
+            }
+            // default is set
+            const channels = [arg1, ...(restArgs ? restArgs.split(/\s+/) : [])]
+                .map((s: string) => s.trim())
+                .filter(Boolean);
+            configStore.setAllowedCreationChannels(channels);
+            const updated = configStore.formatAllowedCreationChannels();
+            await message.reply(`✅ Allowed command creation channels set to: **${updated}**.`);
             return true;
         }
         case 'user_command_help':

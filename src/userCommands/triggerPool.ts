@@ -9,6 +9,7 @@ import {
     interpolateString,
 } from './evaluator';
 import { UserCommandStorage } from './storage';
+import { ConfigStore } from './configStore';
 import {
     ActionValue,
     ComplexValue,
@@ -23,8 +24,17 @@ export class TriggerPool {
     private commands: Map<string, UserCommandJson> = new Map();
     // Track cooldowns per user per command: commandName -> (userId -> lastTimestamp)
     private cooldowns: Map<string, Map<string, number>> = new Map();
+    // Track channel-wide execution cooldowns: channelId -> lastTimestamp
+    private channelCooldowns: Map<string, number> = new Map();
 
-    constructor(private storage: UserCommandStorage) {}
+    constructor(
+        private storage: UserCommandStorage,
+        private configStore?: ConfigStore,
+    ) {}
+
+    public setConfigStore(configStore: ConfigStore): void {
+        this.configStore = configStore;
+    }
 
     public loadFromStorage(): void {
         const loaded = this.storage.loadAllCommands();
@@ -101,6 +111,47 @@ export class TriggerPool {
                     return false;
                 }
 
+                // Check Channel Category Restrictions
+                if (this.configStore && message.channel?.id) {
+                    const chConfig = this.configStore.getChannelConfig(message.channel.id);
+                    if (chConfig.allowedCategories && chConfig.allowedCategories.length > 0) {
+                        const isAllAllowed = chConfig.allowedCategories.includes('*');
+                        if (!isAllAllowed) {
+                            const cmdCategory = (cmd.metadata.category || 'General').toLowerCase();
+                            const allowed = chConfig.allowedCategories.some(
+                                (c) => c.toLowerCase() === cmdCategory,
+                            );
+                            if (!allowed) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+
+                // Check Channel-wide Execution Timeout
+                if (this.configStore && message.channel?.id) {
+                    const chConfig = this.configStore.getChannelConfig(message.channel.id);
+                    const chTimeoutSec = chConfig.timeoutSeconds ?? 0;
+                    if (chTimeoutSec > 0) {
+                        const lastChUsed = this.channelCooldowns.get(message.channel.id) || 0;
+                        const now = Date.now();
+                        if (now - lastChUsed < chTimeoutSec * 1000) {
+                            const remaining = (
+                                (chTimeoutSec * 1000 - (now - lastChUsed)) /
+                                1000
+                            ).toFixed(1);
+                            if (typeof message.reply === 'function') {
+                                await message.reply({
+                                    content: `⏳ Commands in this channel are on a channel-wide cooldown. Please wait ${remaining}s.`,
+                                    allowedMentions: { parse: [] },
+                                });
+                            }
+                            return true;
+                        }
+                        this.channelCooldowns.set(message.channel.id, now);
+                    }
+                }
+
                 // Meta Channels check
                 if (cmd.metadata.channels && cmd.metadata.channels.length > 0) {
                     const chName = (message.channel?.name || '').toLowerCase();
@@ -152,10 +203,12 @@ export class TriggerPool {
                         const remaining = ((cooldownSec * 1000 - (now - lastUsed)) / 1000).toFixed(
                             1,
                         );
-                        await message.reply({
-                            content: `⏳ Command **${cmd.metadata.name}** is on cooldown. Please wait ${remaining}s.`,
-                            allowedMentions: { parse: [] },
-                        });
+                        if (typeof message.reply === 'function') {
+                            await message.reply({
+                                content: `⏳ Command **${cmd.metadata.name}** is on cooldown. Please wait ${remaining}s.`,
+                                allowedMentions: { parse: [] },
+                            });
+                        }
                         return true;
                     }
                     cmdCooldowns.set(authorId, now);

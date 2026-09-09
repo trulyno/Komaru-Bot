@@ -100,12 +100,14 @@ export class UserCommandStorage {
             }
         }
 
-        // Check if name is an alias
+        // Check if name or alias matches (case-insensitive)
         const allCmds = this.loadAllCommands();
-        const foundByAlias = allCmds.find(
-            (c) => c.aliases && c.aliases.some((a) => a.toLowerCase() === name.toLowerCase()),
+        const found = allCmds.find(
+            (c) =>
+                c.metadata.name.toLowerCase() === name.toLowerCase() ||
+                (c.aliases && c.aliases.some((a) => a.toLowerCase() === name.toLowerCase())),
         );
-        return foundByAlias || null;
+        return found || null;
     }
 
     public getRawCommand(name: string): string | null {

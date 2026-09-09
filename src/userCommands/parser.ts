@@ -22,6 +22,7 @@ export function parseUserCommand(
 
     let name = '';
     let description = '';
+    let category = 'General';
     let trigger: UserCommandTrigger | null = null;
     const actions: UserCommandAction[] = [];
     const varAliases: Record<string, number> = {};
@@ -58,6 +59,14 @@ export function parseUserCommand(
             continue;
         }
 
+        // Metadata: category "..."
+        const categoryMatch = line.match(/^category\s+"([^"]+)"$/i);
+        if (categoryMatch) {
+            category = categoryMatch[1].trim();
+            i++;
+            continue;
+        }
+
         // Alias: alias "p", "pong"
         const aliasMatch = line.match(/^alias\s+(.+)$/i);
         if (aliasMatch) {
@@ -80,11 +89,16 @@ export function parseUserCommand(
             continue;
         }
 
-        // Meta directives: meta cooldown 5, meta roles r1, r2, meta channels c1, c2, meta enabled true
+        // Meta directives: meta cooldown 5, meta roles r1, r2, meta channels c1, c2, meta enabled true, meta category Fun
         if (line.toLowerCase().startsWith('meta ')) {
             const metaRest = line.substring(5).trim();
             if (metaRest.toLowerCase().startsWith('cooldown ')) {
                 cooldown = parseFloat(metaRest.substring(9).trim());
+            } else if (metaRest.toLowerCase().startsWith('category ')) {
+                category = metaRest
+                    .substring(9)
+                    .replace(/^["']|["']$/g, '')
+                    .trim();
             } else if (metaRest.toLowerCase().startsWith('roles ')) {
                 roles = metaRest
                     .substring(6)
@@ -242,6 +256,7 @@ export function parseUserCommand(
         creation_date: creationDate,
         name: finalName,
         description: finalDesc,
+        category: category || 'General',
         raw: `${finalName}.md`,
         cooldown: cooldown ?? 5,
         roles,
@@ -337,6 +352,7 @@ function parseQuickCommand(
             creation_date: new Date().toISOString(),
             name: finalName,
             description: 'Quick created command',
+            category: 'General',
             raw: `${finalName}.md`,
             cooldown: 5,
             enabled: true,
