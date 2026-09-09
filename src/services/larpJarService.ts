@@ -71,6 +71,18 @@ export function containsLarpWord(text: string): boolean {
     return countLarpOccurrences(text) > 0;
 }
 
+export function isLarpSpam(text: string): boolean {
+    if (!text) return false;
+    const sanitized = sanitizeLarpText(text);
+    const matches = sanitized.match(LARP_REGEX);
+    if (!matches || matches.length < 5) {
+        return false;
+    }
+    const withoutLarps = sanitized.replace(LARP_REGEX, '');
+    const remaining = withoutLarps.replace(/[\s\t\r\n.,!?;:'"~*_\-`|/\\]/g, '');
+    return remaining.length === 0;
+}
+
 export function calculatePenaltyForThreshold(threshold: number): LarpTier {
     const predefined = DEFAULT_LARP_TIERS.find((t) => t.threshold === threshold);
     if (predefined) {

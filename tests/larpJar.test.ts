@@ -14,6 +14,7 @@ import {
     getRandomClinkMessage,
     getRandomSilencedAttemptMessage,
     getRandomThresholdMessage,
+    isLarpSpam,
     isUserSilenced,
     recordLarp,
     recordSilencedAttempt,
@@ -301,6 +302,22 @@ async function runLarpJarTests(): Promise<void> {
 
         const timeFmt = formatTimeRemaining(3665000);
         assert.strictEqual(timeFmt, '1h 1m');
+    });
+
+    await runTestCase('larp spam detection (5+ occurrences with only larp words)', () => {
+        // Non-spam cases
+        assert.strictEqual(isLarpSpam('hello there'), false);
+        assert.strictEqual(isLarpSpam('larp'), false);
+        assert.strictEqual(isLarpSpam('larp larp larp'), false);
+        assert.strictEqual(isLarpSpam('larp larp larp larp'), false); // 4 is below 5
+        assert.strictEqual(isLarpSpam('larp larp larp larp larp with other text here'), false); // has other words
+
+        // Spam cases (5 or more larp words and nothing else)
+        assert.strictEqual(isLarpSpam('larp larp larp larp larp'), true);
+        assert.strictEqual(isLarpSpam('larp, larp! larp... larp-larp'), true);
+        assert.strictEqual(isLarpSpam('1arp l@rp L4RP !arp larp'), true);
+        assert.strictEqual(isLarpSpam('larp '.repeat(10).trim()), true);
+        assert.strictEqual(isLarpSpam('**larp** _larp_ *larp* `larp` larp'), true);
     });
 
     // Clean up test file after tests

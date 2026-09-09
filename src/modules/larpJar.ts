@@ -1,7 +1,7 @@
 import { Colors, EmbedBuilder } from 'discord.js';
 import { commandRegistry } from '../commandRegistry';
 import { logger } from '../logger';
-import { canModerate, markMessageAsBotDeleted } from '../services/auditLogService';
+import { canModerate, markMessageAsBotDeleted, sendAuditLog } from '../services/auditLogService';
 import {
     containsLarpWord,
     countLarpOccurrences,
@@ -12,6 +12,7 @@ import {
     getRandomClinkMessage,
     getRandomSilencedAttemptMessage,
     getRandomThresholdMessage,
+    isLarpSpam,
     isUserSilenced,
     recordLarp,
     recordSilencedAttempt,
@@ -77,6 +78,35 @@ const moduleDefinition: BotModule = {
                     message.author?.username ||
                     'Unknown';
                 const user = getLarpUser(guildId, userId);
+
+                // Case 0: Larp Spam Detection (5+ larp words and nothing else)
+                if (isLarpSpam(content)) {
+                    const occurrences = countLarpOccurrences(content);
+                    try {
+                        if (message.deletable) {
+                            markMessageAsBotDeleted(message.id);
+                            await message.delete();
+                        }
+                    } catch (error) {
+                        logger.warn(`Failed to delete larp spam message: ${error}`);
+                    }
+
+                    await sendAuditLog(
+                        message.guild,
+                        'Larp Jar Spam Detected',
+                        `Deleted a message from **${displayName}** (<@${userId}>) in <#${message.channel?.id}> containing ${occurrences} repeated larp occurrences.`,
+                        [
+                            { name: 'User', value: `<@${userId}> (${userId})` },
+                            { name: 'Channel', value: `<#${message.channel?.id}>` },
+                            { name: 'Occurrences', value: `${occurrences}` },
+                            {
+                                name: 'Reason',
+                                value: 'Message consisted only of 5+ repeated larp variations',
+                            },
+                        ],
+                    );
+                    return;
+                }
 
                 // Case 1: User is currently silenced/banned from larping
                 if (isUserSilenced(user)) {
