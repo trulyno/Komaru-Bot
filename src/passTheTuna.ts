@@ -47,6 +47,7 @@ export interface PassTheTunaChainState {
     deliciousThreshold: number;
     deliciousAnnouncementTriggered: boolean;
     participants: string[];
+    participantNames?: Record<string, string>;
     configSnapshot: PassTheTunaConfig;
 }
 
@@ -377,6 +378,7 @@ export function createPassTheTunaEngine(dataDir?: string) {
                     ) + config.deliciousThresholdMin,
                 deliciousAnnouncementTriggered: false,
                 participants: [],
+                participantNames: {},
                 configSnapshot: config,
             };
 
@@ -442,7 +444,7 @@ export function createPassTheTunaEngine(dataDir?: string) {
             const multiplier = penalty.penaltyApplied ? config.idlePenaltyMultiplier : 1;
             const userStats = ensureUserStats(state.leaderboard, args.userId);
 
-            const userDisplay = args.userName ? `**${args.userName}**` : `<@${args.userId}>`;
+            const userDisplay = args.userName ? `**${args.userName}**` : `**${args.userId}**`;
 
             if (args.action === 'pass') {
                 const nextChainLength = chain.chainLength + 1;
@@ -452,6 +454,12 @@ export function createPassTheTunaEngine(dataDir?: string) {
                 chain.lastActionByUserId = args.userId;
                 if (!chain.participants.includes(args.userId)) {
                     chain.participants.push(args.userId);
+                }
+                if (!chain.participantNames) {
+                    chain.participantNames = {};
+                }
+                if (args.userName) {
+                    chain.participantNames[args.userId] = args.userName;
                 }
                 userStats.totalScore += score;
                 userStats.highestScore = Math.max(userStats.highestScore, score);
@@ -489,6 +497,13 @@ export function createPassTheTunaEngine(dataDir?: string) {
                     message,
                     gifPath: path.join(resolvedDataDir, config.passGifPath),
                 };
+            }
+
+            if (args.userName) {
+                if (!chain.participantNames) {
+                    chain.participantNames = {};
+                }
+                chain.participantNames[args.userId] = args.userName;
             }
 
             const takeChainLength = chain.chainLength;
@@ -562,6 +577,21 @@ export function createPassTheTunaEngine(dataDir?: string) {
                     : `⛓️ Chain: **${takeChainLength}**`;
 
             const parts = [actionText, chainInfo, `⭐ **+${score} pts**${penaltyText}`];
+
+            if (chain.participants.length > 0) {
+                const participantList = chain.participants
+                    .map((id) => {
+                        const name =
+                            chain.participantNames?.[id] ||
+                            (args.userId === id ? args.userName : undefined);
+                        return name ? `**${name}**` : `**${id}**`;
+                    })
+                    .join(', ');
+                if (participantList) {
+                    parts.push(`👥 Participants: ${participantList}`);
+                }
+            }
+
             if (eventTag) {
                 parts.push(eventTag);
             }
@@ -590,6 +620,7 @@ export function createPassTheTunaEngine(dataDir?: string) {
                         ) + newChainConfig.deliciousThresholdMin,
                     deliciousAnnouncementTriggered: false,
                     participants: [],
+                    participantNames: {},
                     configSnapshot: newChainConfig,
                 },
             };

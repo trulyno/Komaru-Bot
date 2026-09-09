@@ -159,8 +159,9 @@ async function runTests() {
         });
         assert.strictEqual(
             pass2.message,
-            '🐟 <@user-bob> passed the tuna! | ⛓️ Chain: **2** | ⭐ **+20 pts**',
+            '🐟 **user-bob** passed the tuna! | ⛓️ Chain: **2** | ⭐ **+20 pts**',
         );
+        assert.strictEqual(pass2.message.includes('<@'), false);
 
         // 3. Delicious announcement triggered at chain length 4 (threshold 5, announcementTurns 1)
         passEngine.handleAction({ userId: 'user-alice', action: 'pass', now: 18_000 });
@@ -175,6 +176,7 @@ async function runTests() {
             pass4.message,
             '🐟 **Bob** passed the tuna! | ⛓️ Chain: **4** | ⭐ **+40 pts** | 🤤 *The tuna smells delicious!*',
         );
+        assert.strictEqual(pass4.message.includes('<@'), false);
     });
 
     runTestCase('pass the tuna score_boost event and messaging', () => {
@@ -230,8 +232,9 @@ async function runTests() {
         assert.strictEqual(takeResult.score, 50);
         assert.strictEqual(
             takeResult.message,
-            '🍣 **Player3** took the tuna! | ⛓️ Chain: **2** | ⭐ **+50 pts** | 🎉 **Event: Spicy Tuna** (A spicy twist awards the taker extra points.)',
+            '🍣 **Player3** took the tuna! | ⛓️ Chain: **2** | ⭐ **+50 pts** | 👥 Participants: **Player1**, **Player2** | 🎉 **Event: Spicy Tuna** (A spicy twist awards the taker extra points.)',
         );
+        assert.strictEqual(takeResult.message.includes('<@'), false);
     });
 
     runTestCase('pass the tuna chain_bonus event and messaging', () => {
@@ -274,8 +277,9 @@ async function runTests() {
         assert.strictEqual(takeResult.score, 20); // 10 * 2
         assert.strictEqual(
             takeResult.message,
-            '🍣 **TakerUser** took the tuna! | ⛓️ Chain: **2** | ⭐ **+20 pts** | 🎉 **Event: Chain Bonus** (Everyone in the chain except the taker gets a small bonus.)',
+            '🍣 **TakerUser** took the tuna! | ⛓️ Chain: **2** | ⭐ **+20 pts** | 👥 Participants: **user-passer1**, **user-passer2** | 🎉 **Event: Chain Bonus** (Everyone in the chain except the taker gets a small bonus.)',
         );
+        assert.strictEqual(takeResult.message.includes('<@'), false);
 
         // Verify chain participants received bonus
         const state = loadPassTheTunaState(bonusDir);
@@ -324,8 +328,9 @@ async function runTests() {
         assert.strictEqual(takeResult.event?.type, 'rotten');
         assert.strictEqual(
             takeResult.message,
-            '🪰 **UnluckyPlayer** took the tuna, but it was rotten! | ⛓️ Chain: **2** | ⭐ **+0 pts** | 🤢 **Event: Rotten Tuna** (The tuna is spoiled and awards no score.)',
+            '🪰 **UnluckyPlayer** took the tuna, but it was rotten! | ⛓️ Chain: **2** | ⭐ **+0 pts** | 👥 Participants: **user-1**, **user-2** | 🤢 **Event: Rotten Tuna** (The tuna is spoiled and awards no score.)',
         );
+        assert.strictEqual(takeResult.message.includes('<@'), false);
     });
 
     runTestCase('pass the tuna take too early (too fresh)', () => {
@@ -358,8 +363,69 @@ async function runTests() {
         assert.strictEqual(takeResult.event, undefined);
         assert.strictEqual(
             takeResult.message,
-            '🍣 **EagerPlayer** took the tuna too early! | ⛓️ Chain: **1** (needed **10**) | ⭐ **+0 pts**',
+            '🍣 **EagerPlayer** took the tuna too early! | ⛓️ Chain: **1** (needed **10**) | ⭐ **+0 pts** | 👥 Participants: **user-1**',
         );
+        assert.strictEqual(takeResult.message.includes('<@'), false);
+    });
+
+    runTestCase('pass the tuna participants display names and no pings', () => {
+        const partDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pass-tuna-participants-'));
+        const partEngine = createPassTheTunaEngine(partDir);
+        const partConfig = {
+            ...initialConfig,
+            takeBaseScore: 10,
+            deliciousThresholdMin: 3,
+            deliciousThresholdMax: 3,
+            events: [],
+        };
+
+        partEngine.startChain({
+            channelId: 'channel-part',
+            guildId: 'guild-1',
+            now: 1_000,
+            config: partConfig,
+        });
+
+        // Alice passes
+        partEngine.handleAction({
+            userId: '111',
+            userName: 'Alice',
+            action: 'pass',
+            now: 2_000,
+        });
+        // Bob passes
+        partEngine.handleAction({
+            userId: '222',
+            userName: 'Bob',
+            action: 'pass',
+            now: 8_000,
+        });
+        // Alice passes again (duplicate should not duplicate in participants list)
+        partEngine.handleAction({
+            userId: '111',
+            userName: 'Alice',
+            action: 'pass',
+            now: 14_000,
+        });
+
+        // Charlie takes
+        const takeResult = partEngine.handleAction({
+            userId: '333',
+            userName: 'Charlie',
+            action: 'take',
+            now: 20_000,
+        });
+
+        assert.strictEqual(takeResult.chainEnded, true);
+        assert.strictEqual(
+            takeResult.message,
+            '🍣 **Charlie** took the tuna! | ⛓️ Chain: **3** | ⭐ **+30 pts** | 👥 Participants: **Alice**, **Bob**',
+        );
+        // Absolutely zero mentions/pings
+        assert.strictEqual(takeResult.message.includes('<@'), false);
+        assert.strictEqual(takeResult.message.includes('111'), false);
+        assert.strictEqual(takeResult.message.includes('222'), false);
+        assert.strictEqual(takeResult.message.includes('333'), false);
     });
 
     runTestCase('pass the tuna events happen naturally and in general', () => {
@@ -417,6 +483,7 @@ async function runTests() {
             // Verify message structure always includes user, chain length, points
             assert.strictEqual(outcome.message.includes('PlayerX'), true);
             assert.strictEqual(outcome.message.includes('Chain: **1**'), true);
+            assert.strictEqual(outcome.message.includes('<@'), false);
 
             if (outcome.event) {
                 eventOccurredCount++;

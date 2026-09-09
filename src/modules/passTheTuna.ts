@@ -109,7 +109,7 @@ const moduleDefinition: BotModule = {
             const sendMessage = async (content: string, attachmentPath?: string) => {
                 const payload: any = {
                     content,
-                    allowedMentions: { parse: [] },
+                    allowedMentions: { parse: [], users: [], roles: [] },
                 };
                 if (attachmentPath && fs.existsSync(attachmentPath)) {
                     payload.files = [attachmentPath];
