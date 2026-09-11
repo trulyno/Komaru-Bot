@@ -232,7 +232,7 @@ async function runTests() {
         assert.strictEqual(takeResult.score, 50);
         assert.strictEqual(
             takeResult.message,
-            '🍣 **Player3** took the tuna! | ⛓️ Chain: **2** | ⭐ **+50 pts** | 👥 Participants: **Player1**, **Player2** | 🎉 **Event: Spicy Tuna** (A spicy twist awards the taker extra points.)',
+            '🍣 **Player3** took the tuna! | ⛓️ Chain: **2** | ⭐ **+50 pts** | 🎉 **Event: Spicy Tuna** (A spicy twist awards the taker extra points.)\n👥 Participants: **Player1**, **Player2**',
         );
         assert.strictEqual(takeResult.message.includes('<@'), false);
     });
@@ -277,7 +277,7 @@ async function runTests() {
         assert.strictEqual(takeResult.score, 20); // 10 * 2
         assert.strictEqual(
             takeResult.message,
-            '🍣 **TakerUser** took the tuna! | ⛓️ Chain: **2** | ⭐ **+20 pts** | 👥 Participants: **user-passer1**, **user-passer2** | 🎉 **Event: Chain Bonus** (Everyone in the chain except the taker gets a small bonus.)',
+            '🍣 **TakerUser** took the tuna! | ⛓️ Chain: **2** | ⭐ **+20 pts** | 🎉 **Event: Chain Bonus** (Everyone in the chain except the taker gets a small bonus.)\n👥 Participants: **user-passer1**, **user-passer2**',
         );
         assert.strictEqual(takeResult.message.includes('<@'), false);
 
@@ -328,7 +328,7 @@ async function runTests() {
         assert.strictEqual(takeResult.event?.type, 'rotten');
         assert.strictEqual(
             takeResult.message,
-            '🪰 **UnluckyPlayer** took the tuna, but it was rotten! | ⛓️ Chain: **2** | ⭐ **+0 pts** | 👥 Participants: **user-1**, **user-2** | 🤢 **Event: Rotten Tuna** (The tuna is spoiled and awards no score.)',
+            '🪰 **UnluckyPlayer** took the tuna, but it was rotten! | ⛓️ Chain: **2** | ⭐ **+0 pts** | 🤢 **Event: Rotten Tuna** (The tuna is spoiled and awards no score.)\n👥 Participants: **user-1**, **user-2**',
         );
         assert.strictEqual(takeResult.message.includes('<@'), false);
     });
@@ -363,7 +363,7 @@ async function runTests() {
         assert.strictEqual(takeResult.event, undefined);
         assert.strictEqual(
             takeResult.message,
-            '🍣 **EagerPlayer** took the tuna too early! | ⛓️ Chain: **1** (needed **10**) | ⭐ **+0 pts** | 👥 Participants: **user-1**',
+            '🍣 **EagerPlayer** took the tuna too early! | ⛓️ Chain: **1** (needed **10**) | ⭐ **+0 pts**\n👥 Participants: **user-1**',
         );
         assert.strictEqual(takeResult.message.includes('<@'), false);
     });
@@ -419,13 +419,20 @@ async function runTests() {
         assert.strictEqual(takeResult.chainEnded, true);
         assert.strictEqual(
             takeResult.message,
-            '🍣 **Charlie** took the tuna! | ⛓️ Chain: **3** | ⭐ **+30 pts** | 👥 Participants: **Alice**, **Bob**',
+            '🍣 **Charlie** took the tuna! | ⛓️ Chain: **3** | ⭐ **+30 pts**\n👥 Participants: **Alice**, **Bob**',
         );
         // Absolutely zero mentions/pings
         assert.strictEqual(takeResult.message.includes('<@'), false);
         assert.strictEqual(takeResult.message.includes('111'), false);
         assert.strictEqual(takeResult.message.includes('222'), false);
         assert.strictEqual(takeResult.message.includes('333'), false);
+
+        // Check leaderboard output uses display names and does not ping
+        const leaderboardSummary = partEngine.getLeaderboards();
+        assert.strictEqual(leaderboardSummary.includes('<@'), false);
+        assert.strictEqual(leaderboardSummary.includes('**Alice** — total 40'), true);
+        assert.strictEqual(leaderboardSummary.includes('**Bob** — total 20'), true);
+        assert.strictEqual(leaderboardSummary.includes('**Charlie** — total 30'), true);
     });
 
     runTestCase('pass the tuna events happen naturally and in general', () => {

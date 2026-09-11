@@ -34,6 +34,7 @@ export interface PassTheTunaUserStats {
     highestChainLengthTake: number;
     passesMade: number;
     takesMade: number;
+    displayName?: string;
 }
 
 export interface PassTheTunaChainState {
@@ -273,6 +274,7 @@ export function savePassTheTunaState(state: PassTheTunaState, dataDir?: string):
 function ensureUserStats(
     leaderboard: Record<string, PassTheTunaUserStats>,
     userId: string,
+    userName?: string,
 ): PassTheTunaUserStats {
     if (!leaderboard[userId]) {
         leaderboard[userId] = {
@@ -281,7 +283,11 @@ function ensureUserStats(
             highestChainLengthTake: 0,
             passesMade: 0,
             takesMade: 0,
+            displayName: userName || userId,
         };
+    }
+    if (userName) {
+        leaderboard[userId].displayName = userName;
     }
     return leaderboard[userId];
 }
@@ -343,7 +349,7 @@ function buildLeaderboardSummary(leaderboard: Record<string, PassTheTunaUserStat
         .slice(0, 5)
         .map(
             ([userId, stats]) =>
-                `<@${userId}> — total ${stats.totalScore}, best ${stats.highestScore}`,
+                `**${stats.displayName || userId}** — total ${stats.totalScore}, best ${stats.highestScore}`,
         )
         .join('\n');
 
@@ -442,7 +448,7 @@ export function createPassTheTunaEngine(dataDir?: string) {
 
             const penalty = maybeApplyIdlePenalty(chain, config, now);
             const multiplier = penalty.penaltyApplied ? config.idlePenaltyMultiplier : 1;
-            const userStats = ensureUserStats(state.leaderboard, args.userId);
+            const userStats = ensureUserStats(state.leaderboard, args.userId, args.userName);
 
             const userDisplay = args.userName ? `**${args.userName}**` : `**${args.userId}**`;
 
@@ -563,7 +569,12 @@ export function createPassTheTunaEngine(dataDir?: string) {
                 const bonusAmount = event.bonusAmount ?? 5;
                 for (const participantId of chain.participants) {
                     if (participantId === args.userId) continue;
-                    const bonusStats = ensureUserStats(state.leaderboard, participantId);
+                    const participantName = chain.participantNames?.[participantId];
+                    const bonusStats = ensureUserStats(
+                        state.leaderboard,
+                        participantId,
+                        participantName,
+                    );
                     bonusStats.totalScore += bonusAmount;
                     bonusStats.highestScore = Math.max(bonusStats.highestScore, bonusAmount);
                 }
@@ -578,6 +589,11 @@ export function createPassTheTunaEngine(dataDir?: string) {
 
             const parts = [actionText, chainInfo, `⭐ **+${score} pts**${penaltyText}`];
 
+            if (eventTag) {
+                parts.push(eventTag);
+            }
+            let summary = parts.join(' | ');
+
             if (chain.participants.length > 0) {
                 const participantList = chain.participants
                     .map((id) => {
@@ -588,14 +604,9 @@ export function createPassTheTunaEngine(dataDir?: string) {
                     })
                     .join(', ');
                 if (participantList) {
-                    parts.push(`👥 Participants: ${participantList}`);
+                    summary += `\n👥 Participants: ${participantList}`;
                 }
             }
-
-            if (eventTag) {
-                parts.push(eventTag);
-            }
-            const summary = parts.join(' | ');
 
             const newChainConfig = loadPassTheTunaConfig(resolvedDataDir);
             const nextChain = {
