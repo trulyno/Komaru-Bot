@@ -4,6 +4,8 @@ import { logger } from '../logger';
 import { config } from '../config';
 import {
     buildVerificationForm,
+    formatAllowedVerificationChannels,
+    formatChannelIdentifier,
     getConfiguredAllowedChannels,
     getFieldValues,
     handleVerificationForm,
@@ -15,6 +17,8 @@ import {
 } from '../services/verificationService';
 
 export {
+    formatAllowedVerificationChannels,
+    formatChannelIdentifier,
     getConfiguredAllowedChannels,
     isVerificationChannel,
     isVerifier,
@@ -22,6 +26,8 @@ export {
     buildVerificationForm,
     getFieldValues,
     handleVerificationForm,
+    stargateRoleIds,
+    verificationChannelId,
 };
 
 import { BotModule } from '../moduleLoader';
@@ -54,11 +60,9 @@ const moduleDefinition: BotModule = {
             description: 'Requests a gate run verification',
             handler: async (interaction: any) => {
                 if (!isVerificationChannel(interaction.channel)) {
-                    const allowed = getConfiguredAllowedChannels();
-                    const channelNames =
-                        allowed.length > 0
-                            ? allowed.map((c) => `#${c}`).join(', ')
-                            : 'designated verification channels';
+                    const channelNames = formatAllowedVerificationChannels(
+                        interaction.guild ?? interaction.client,
+                    );
                     await interaction.reply({
                         content: `❌ Verification requests can only be made in ${channelNames}.`,
                         ephemeral: true,

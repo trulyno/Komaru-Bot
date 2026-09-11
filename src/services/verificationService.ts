@@ -25,6 +25,107 @@ export function getConfiguredAllowedChannels(): string[] {
     return config.env.verificationChannelsAllowed;
 }
 
+/**
+ * Searches for a channel in a guild or client cache by ID or name.
+ */
+function findGuildChannel(guildOrClient: any, identifier: string): any {
+    if (!guildOrClient) return null;
+    const channels = guildOrClient.channels?.cache ?? guildOrClient.channels;
+    if (!channels) return null;
+
+    const trimmed = identifier
+        .trim()
+        .replace(/^<#|>$/g, '')
+        .replace(/^#/, '');
+
+    // Check by ID
+    if (typeof channels.get === 'function') {
+        const byId = channels.get(trimmed);
+        if (byId) return byId;
+    } else if (Array.isArray(channels)) {
+        const byId = channels.find((c: any) => c.id === trimmed);
+        if (byId) return byId;
+    }
+
+    // Check by name
+    const lower = trimmed.toLowerCase();
+    if (typeof channels.find === 'function') {
+        const byName = channels.find((c: any) => c.name?.toLowerCase() === lower);
+        if (byName) return byName;
+    } else if (Array.isArray(channels)) {
+        const byName = channels.find((c: any) => c.name?.toLowerCase() === lower);
+        if (byName) return byName;
+    }
+
+    return null;
+}
+
+/**
+ * Formats a channel identifier (ID, name, or mention) for Discord markdown output.
+ * If numeric snowflake ID, formats as <#ID>.
+ * If channel name and found in guild cache, resolves to <#ID>.
+ * Otherwise falls back to #channel-name.
+ */
+export function formatChannelIdentifier(entry: string, guildOrClient?: any): string {
+    const raw = entry.trim();
+    if (!raw) return '';
+
+    // If it's already a channel mention <#123456789>
+    const mentionMatch = raw.match(/^<#(\d+)>$/);
+    if (mentionMatch) {
+        return raw;
+    }
+
+    // If it's a numeric snowflake ID
+    if (/^\d+$/.test(raw)) {
+        return `<#${raw}>`;
+    }
+
+    // Try resolving from guild/client
+    const found = findGuildChannel(guildOrClient, raw);
+    if (found && found.id) {
+        return `<#${found.id}>`;
+    }
+
+    // Fallback: format with leading #
+    const cleaned = raw.replace(/^#/, '');
+    return `#${cleaned}`;
+}
+
+/**
+ * Formats all configured allowed verification channels into a human-readable list of Discord mentions.
+ */
+export function formatAllowedVerificationChannels(guildOrClient?: any): string {
+    const allowed = getConfiguredAllowedChannels();
+    const mainId = config.env.verificationChannelId;
+
+    const allEntries: string[] = [...allowed];
+    if (mainId && mainId !== 'verification_channel' && !allEntries.includes(mainId)) {
+        allEntries.push(mainId);
+    }
+
+    if (allEntries.length === 0) {
+        return 'designated verification channels';
+    }
+
+    const formattedList: string[] = [];
+    const seen = new Set<string>();
+
+    for (const entry of allEntries) {
+        const formatted = formatChannelIdentifier(entry, guildOrClient);
+        if (formatted && !seen.has(formatted)) {
+            seen.add(formatted);
+            formattedList.push(formatted);
+        }
+    }
+
+    if (formattedList.length === 0) {
+        return 'designated verification channels';
+    }
+
+    return formattedList.join(', ');
+}
+
 export function isVerificationChannel(channel: any): boolean {
     if (!channel) return false;
     const allowedList = getConfiguredAllowedChannels();
