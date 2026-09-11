@@ -16,7 +16,7 @@ const DEFAULT_CONFIG_FILE: ModulesConfigFile = {
 };
 
 // Critical core modules that can never be disabled to prevent lockout
-export const UNBLOCKABLE_MODULES = new Set<string>(['admin', 'help']);
+export const UNBLOCKABLE_MODULES = new Set<string>(['admin', 'help', 'backup']);
 
 export class ModuleConfigService {
     private filePath: string;

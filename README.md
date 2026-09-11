@@ -50,3 +50,79 @@ The deployment pipeline (`scripts/deploy.ts` / `./deploy.sh`) enforces strict qu
 9. **Stage 9: Deployment Manifest Generation** (Writes `deployment_info.json` with commit, branch, timestamp)
 
 If any check fails at any stage, the pipeline **aborts immediately** and leaves the production environment untouched.
+
+## Google Drive Backup & Live Restore
+
+Komaru the Cat includes an automated, scheduled, and on-demand Google Drive backup service for the `data/` directory.
+
+- **Automated Backups**: Backs up `data/` into compressed `.tar.gz` archives on a configurable schedule (`BACKUP_INTERVAL_MINUTES`).
+- **Non-Blocking Manual Backups**: Admins can trigger backups anytime via `/backup create` without interrupting the schedule or bot operations.
+- **Live Restore with Soft Restart**: Restoring via `/backup restore` downloads and unpacks the archive into `data/`, automatically invalidating config caches and reloading all bot modules without dropping the Discord Gateway connection.
+- **Retention Pruning**: Automatically rotates and removes older backups exceeding `BACKUP_RETENTION_COUNT`.
+
+### Step-by-Step Google Drive Configuration
+
+Follow these steps to connect the bot to Google Drive:
+
+#### 1. Create a Google Cloud Project & Enable Google Drive API
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new project (e.g. `komaru-bot-data`) or select an existing project.
+3. In the left navigation menu, go to **APIs & Services** > **Library**.
+4. Search for **Google Drive API** and click **Enable**.
+
+#### 2. Create a Service Account & Download Key
+
+1. Go to **APIs & Services** > **Credentials**.
+2. Click **Create Credentials** > **Service Account**.
+3. Set a Service account name (e.g. `komaru-backup`) and click **Done**.
+4. Click on the newly created Service Account from the list, then select the **Keys** tab.
+5. Click **Add Key** > **Create new key**, select **JSON**, and click **Create**.
+6. A JSON credentials file will download to your computer.
+
+#### 3. Create a Google Drive Folder & Share with Service Account
+
+1. Open [Google Drive](https://drive.google.com/).
+2. Create a dedicated folder for backups (e.g. `Komaru Bot Backups`).
+3. Right-click the folder > **Share** > **Share**.
+4. In the "Add people and groups" box, paste the **Service Account Email** (e.g. `komaru-backup@your-project.iam.gserviceaccount.com`).
+5. Ensure the role is set to **Editor**, then click **Send** / **Save**.
+6. Copy the **Folder ID** from your browser address bar (the alphanumeric string after `/folders/`, e.g. `https://drive.google.com/drive/folders/1a2b3c4d5e6f7g8h9...`).
+
+#### 4. Configure Environment Variables (`.env`)
+
+Place the downloaded JSON key in your project root or set the environment variables in `.env`:
+
+```env
+# Option A: Path to Service Account JSON key file (recommended)
+GOOGLE_SERVICE_ACCOUNT_KEY_PATH=./service-account.json
+
+# Option B: Raw JSON string of the service account key
+# GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account","client_email":"...","private_key":"..."}
+
+# Option C: Explicit Email & Private Key
+# GOOGLE_SERVICE_ACCOUNT_EMAIL=komaru-backup@your-project.iam.gserviceaccount.com
+# GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+
+# Google Drive Target Folder ID
+GOOGLE_DRIVE_FOLDER_ID=1a2b3c4d5e6f7g8h9i0jklmnopqrstuvwxyz
+
+# Scheduled backup interval in minutes (default: 360 = 6 hours)
+BACKUP_INTERVAL_MINUTES=360
+
+# Number of backups to retain on Google Drive before deleting oldest (default: 10)
+BACKUP_RETENTION_COUNT=10
+
+# Enable/disable scheduled backups (default: true)
+BACKUP_ENABLED=true
+```
+
+### Discord Admin Backup Commands
+
+| Command                            | Description                                                                         |
+| ---------------------------------- | ----------------------------------------------------------------------------------- |
+| `/backup create`                   | Manually triggers an immediate non-blocking backup to Google Drive.                 |
+| `/backup list`                     | Displays available backups stored in Google Drive with timestamps and sizes.        |
+| `/backup restore backup:latest`    | Downloads and restores the latest backup, triggering a soft bot reload.             |
+| `/backup restore backup:<file_id>` | Restores a specific backup archive by file ID or archive name.                      |
+| `/backup status`                   | Displays Google Drive connection status, next scheduled run, and last backup stats. |

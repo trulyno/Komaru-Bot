@@ -3,10 +3,11 @@ import { logger } from './logger';
 export interface CommandOption {
     name: string;
     description: string;
-    type: number; // 3: STRING, 4: INTEGER, 5: BOOLEAN, 6: USER, 7: CHANNEL, 10: NUMBER
+    type: number; // 1: SUB_COMMAND, 2: SUB_COMMAND_GROUP, 3: STRING, 4: INTEGER, 5: BOOLEAN, 6: USER, 7: CHANNEL, 10: NUMBER
     required?: boolean;
     choices?: Array<{ name: string; value: string | number }>;
     channel_types?: number[];
+    options?: CommandOption[];
 }
 
 export interface CommandDefinition {
