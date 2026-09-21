@@ -238,16 +238,6 @@ export const buildVerificationForm = (): ModalBuilder => {
             ),
             new ActionRowBuilder<TextInputBuilder>().addComponents(
                 new TextInputBuilder()
-                    .setCustomId('modifications')
-                    .setLabel('Did you modify the modpack in any way?')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setRequired(true)
-                    .setPlaceholder(
-                        'If yes, please list all modifications made (or "no modifications")',
-                    ),
-            ),
-            new ActionRowBuilder<TextInputBuilder>().addComponents(
-                new TextInputBuilder()
                     .setCustomId('versions')
                     .setLabel('In what version(s) did you play?')
                     .setStyle(TextInputStyle.Short)
@@ -274,11 +264,11 @@ export const buildVerificationForm = (): ModalBuilder => {
             ),
             new ActionRowBuilder<TextInputBuilder>().addComponents(
                 new TextInputBuilder()
-                    .setCustomId('cheats')
-                    .setLabel('Did you or teammates cheat items in?')
+                    .setCustomId('modifications')
+                    .setLabel('Any modifications to the modpack or cheated items?')
                     .setStyle(TextInputStyle.Paragraph)
                     .setRequired(true)
-                    .setPlaceholder('Ex. nothing, cheated in building blocks, etc.'),
+                    .setPlaceholder('List any modpack modifications or cheated items (or "none")'),
             ),
         ]);
 
@@ -286,19 +276,32 @@ export const buildVerificationForm = (): ModalBuilder => {
 };
 
 export function getFieldValues(interaction: ModalSubmitInteraction): Record<string, string> {
+    const getSafe = (customId: string) => {
+        try {
+            return interaction.fields.getTextInputValue(customId)?.trim() ?? '';
+        } catch {
+            return '';
+        }
+    };
+
     return {
-        role: interaction.fields.getTextInputValue('role').trim(),
-        modifications: interaction.fields.getTextInputValue('modifications').trim(),
-        versions: interaction.fields.getTextInputValue('versions').trim(),
-        method: interaction.fields.getTextInputValue('method').trim(),
-        playtime: interaction.fields.getTextInputValue('playtime').trim(),
-        cheats: interaction.fields.getTextInputValue('cheats').trim(),
+        role: getSafe('role'),
+        modifications: getSafe('modifications'),
+        versions: getSafe('versions'),
+        method: getSafe('method'),
+        playtime: getSafe('playtime'),
+        cheats: getSafe('cheats'),
     };
 }
 
 export async function handleVerificationForm(interaction: ModalSubmitInteraction): Promise<void> {
     try {
         const values = getFieldValues(interaction);
+
+        const modsAndCheats =
+            values.modifications && values.cheats
+                ? `Modifications: ${values.modifications}\nCheats: ${values.cheats}`
+                : values.modifications || values.cheats || 'None';
 
         const embed = new EmbedBuilder()
             .setTitle('📝 Gate Run Verification Request')
@@ -309,12 +312,11 @@ export async function handleVerificationForm(interaction: ModalSubmitInteraction
             })
             .addFields(
                 { name: '👤 User', value: `<@${interaction.user.id}>`, inline: true },
-                { name: '🏆 Role Requested', value: values.role, inline: true },
-                { name: '🎮 Play Method', value: values.method, inline: true },
-                { name: '📦 Version(s)', value: values.versions, inline: false },
-                { name: '🛠️ Modifications', value: values.modifications, inline: false },
-                { name: '⏱️ Playtime', value: values.playtime, inline: false },
-                { name: '⚠️ Cheats / Spawning', value: values.cheats, inline: false },
+                { name: '🏆 Role Requested', value: values.role || 'None', inline: true },
+                { name: '🎮 Play Method', value: values.method || 'None', inline: true },
+                { name: '📦 Version(s)', value: values.versions || 'None', inline: false },
+                { name: '⏱️ Playtime', value: values.playtime || 'None', inline: false },
+                { name: '🛠️ Modifications / Cheats', value: modsAndCheats, inline: false },
             )
             .setFooter({ text: `User ID: ${interaction.user.id}` })
             .setTimestamp();

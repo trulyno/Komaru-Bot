@@ -114,7 +114,7 @@ async function runVerificationTests() {
     await runTestCase('buildVerificationForm and getFieldValues', async () => {
         const modal = buildVerificationForm();
         assert.strictEqual(modal.data.custom_id, 'verification_form');
-        assert.strictEqual(modal.components.length, 6);
+        assert.strictEqual(modal.components.length, 5);
 
         const mockInteraction = {
             fields: {
@@ -129,6 +129,20 @@ async function runVerificationTests() {
         assert.strictEqual(values.method, 'value_method');
         assert.strictEqual(values.playtime, 'value_playtime');
         assert.strictEqual(values.cheats, 'value_cheats');
+
+        // Test safe handling when optional fields throw (field not present in modal)
+        const missingFieldInteraction = {
+            fields: {
+                getTextInputValue: (id: string) => {
+                    if (id === 'cheats') throw new Error('Field not found');
+                    return ` value_${id} `;
+                },
+            },
+        } as any;
+
+        const safeValues = getFieldValues(missingFieldInteraction);
+        assert.strictEqual(safeValues.cheats, '');
+        assert.strictEqual(safeValues.role, 'value_role');
     });
 
     await runTestCase('formatChannelIdentifier formatting', async () => {
