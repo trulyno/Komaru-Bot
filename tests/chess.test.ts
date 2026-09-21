@@ -280,6 +280,7 @@ async function runSuite(): Promise<void> {
             const boardStr = renderAsciiBoard(chess);
             assert.ok(boardStr.includes('♜'));
             assert.ok(boardStr.includes('♖'));
+            assert.ok(boardStr.includes('・'));
             assert.ok(boardStr.includes('a  b  c  d  e  f  g  h'));
 
             // Material summary on opening board

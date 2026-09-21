@@ -1040,7 +1040,7 @@ export function renderAsciiBoard(chess: Chess, flip = false): string {
         b_k: '♚',
     };
 
-    const header = `  ${files.join('  ')}`;
+    const header = `  ${files.map((f) => `${f}  `).join('')}`;
     const lines: string[] = [header];
 
     for (const rank of ranks) {
@@ -1055,11 +1055,10 @@ export function renderAsciiBoard(chess: Chess, flip = false): string {
                 const key = `${piece.color}_${piece.type}`;
                 cells.push(pieceSymbols[key] || '?');
             } else {
-                // Light and dark square alternate
-                cells.push('·');
+                cells.push('・');
             }
         }
-        lines.push(`${rank} ${cells.join('  ')} ${rank}`);
+        lines.push(`${rank} ${cells.join(' ')} ${rank}`);
     }
 
     lines.push(header);

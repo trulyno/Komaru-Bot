@@ -265,7 +265,7 @@ export const buildVerificationForm = (): ModalBuilder => {
             new ActionRowBuilder<TextInputBuilder>().addComponents(
                 new TextInputBuilder()
                     .setCustomId('modifications')
-                    .setLabel('Any modifications to the modpack or cheated items?')
+                    .setLabel('Modifications to modpack or cheated items?')
                     .setStyle(TextInputStyle.Paragraph)
                     .setRequired(true)
                     .setPlaceholder('List any modpack modifications or cheated items (or "none")'),

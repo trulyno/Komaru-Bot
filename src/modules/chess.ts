@@ -61,7 +61,7 @@ const moduleDefinition: BotModule = {
             '/chess_leaderboard',
         ],
     },
-    register: async (client: any, context?: any) => {
+    register: async (client: any, _context?: any) => {
         // Register slash command /chess
         commandRegistry.register({
             name: 'chess',
