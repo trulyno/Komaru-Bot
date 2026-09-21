@@ -46,9 +46,6 @@ export function parseTimeExpression(input: string): ParsedTimeExpression | null 
 export function formatTimeForTimezone(date: Date, timezone: string): string {
     const formatter = new Intl.DateTimeFormat('en-GB', {
         timeZone: timezone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
@@ -70,13 +67,11 @@ export function isValidTimezone(timezone: string): boolean {
 export function buildTimeReply(command: ParsedTimeExpression, timezone?: string | null): string {
     const baseDate = new Date(Date.now() + command.offsetMs);
 
-    if (command.command === 'mytime' && timezone) {
-        return `Current time for you (${timezone}): ${formatTimeForTimezone(baseDate, timezone)}`;
-    }
-
     if (command.command === 'mytime') {
-        return 'You have not registered a timezone yet. Use !settimezone <IANA timezone> to register one.';
+        return timezone
+            ? `Current time for you: ${formatTimeForTimezone(baseDate, timezone)}`
+            : 'You have not registered a timezone yet. Use !settimezone <IANA timezone> to register one.';
     }
 
-    return `Current time: ${baseDate.toISOString()}`;
+    return `Current time: ${formatTimeForTimezone(baseDate, 'UTC')}`;
 }

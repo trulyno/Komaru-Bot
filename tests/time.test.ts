@@ -2,7 +2,12 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { formatTimeForTimezone, parseTimeExpression, UserTimezoneStore } from '../src/modules/time';
+import {
+    buildTimeReply,
+    formatTimeForTimezone,
+    parseTimeExpression,
+    UserTimezoneStore,
+} from '../src/modules/time';
 import { runTestCase } from './testHarness';
 
 async function runTests() {
@@ -41,8 +46,27 @@ async function runTests() {
             new Date('2024-01-01T12:00:00.000Z'),
             'America/New_York',
         );
-        assert.strictEqual(typeof formatted, 'string');
-        assert.ok(formatted.length > 0);
+        assert.strictEqual(formatted, '07:00:00 (America/New_York)');
+
+        const formattedUtc = formatTimeForTimezone(new Date('2024-01-01T12:00:00.000Z'), 'UTC');
+        assert.strictEqual(formattedUtc, '12:00:00 (UTC)');
+    });
+
+    runTestCase('buildTimeReply output', () => {
+        const timeReply = buildTimeReply({ command: 'time', offsetMs: 0 });
+        assert.match(timeReply, /^Current time: \d{2}:\d{2}:\d{2} \(UTC\)$/);
+
+        const myTimeReply = buildTimeReply({ command: 'mytime', offsetMs: 0 }, 'America/New_York');
+        assert.match(
+            myTimeReply,
+            /^Current time for you: \d{2}:\d{2}:\d{2} \(America\/New_York\)$/,
+        );
+
+        const unregReply = buildTimeReply({ command: 'mytime', offsetMs: 0 }, null);
+        assert.strictEqual(
+            unregReply,
+            'You have not registered a timezone yet. Use !settimezone <IANA timezone> to register one.',
+        );
     });
 }
 
