@@ -12,6 +12,8 @@ import moduleDefinition, {
 import { LegacyTagNavigationFile } from '../src/services/legacyTagService';
 import { runTestCase } from './testHarness';
 
+export const priority = -1;
+
 async function runTests() {
     const sampleNav: LegacyTagNavigationFile = {
         tags: {

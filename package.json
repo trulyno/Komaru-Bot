@@ -11,6 +11,9 @@
         "format": "prettier --write .",
         "lint:typecheck": "tsc -p tsconfig.json",
         "test": "ts-node tests/runTests.ts",
+        "test:skip": "ts-node tests/runTests.ts --skip",
+        "test:dry-run": "ts-node tests/runTests.ts --dry-run",
+        "test:dry-run:skip": "ts-node tests/runTests.ts --dry-run --skip",
         "deploy": "ts-node scripts/deploy.ts",
         "deploy:dry-run": "ts-node scripts/deploy.ts --dry-run"
     },
