@@ -14,3 +14,4 @@ data/larp_jar/state.json
 data/tickets/tickets.json
 data/modules_config.json
 data/chess/games.json
+data/color_of_the_day/state.json

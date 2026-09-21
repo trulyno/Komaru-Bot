@@ -186,11 +186,7 @@ export function getStaffRoles(guild: any): any[] {
         ) {
             return true;
         }
-        if (
-            nameLower.includes('moderator') ||
-            nameLower.includes('mod') ||
-            nameLower.includes('admin')
-        ) {
+        if (nameLower.includes('moderator') || nameLower.includes('admin')) {
             return true;
         }
         if (role.permissions?.has?.(PermissionFlagsBits.Administrator)) {
