@@ -2,16 +2,18 @@ import path from 'node:path';
 import { config } from '../config';
 import { logger, logError } from '../logger';
 import { moduleLoader } from '../moduleLoader';
-import { GoogleDriveClient, GoogleDriveFile } from './googleDriveClient';
+import { GoogleDriveAuthType, GoogleDriveClient, GoogleDriveFile } from './googleDriveClient';
 import { packDirectory, unpackArchive } from '../utils/tarArchive';
 
 export interface BackupStatus {
     isConfigured: boolean;
+    authType: GoogleDriveAuthType;
     schedulerActive: boolean;
     intervalMinutes: number;
     retentionCount: number;
     targetFolderId?: string;
     clientEmail?: string;
+    impersonatedUser?: string;
     isBackingUp: boolean;
     lastBackupTime?: string;
     lastBackupName?: string;
@@ -57,6 +59,10 @@ export class BackupService {
             privateKey: env.googlePrivateKey,
             keyFilePath: env.googleServiceAccountKeyPath,
             rawJson: env.googleServiceAccountJson,
+            impersonatedUser: env.googleServiceAccountImpersonatedUser,
+            oauthClientId: env.googleOAuthClientId,
+            oauthClientSecret: env.googleOAuthClientSecret,
+            oauthRefreshToken: env.googleOAuthRefreshToken,
             folderId: env.googleDriveFolderId,
         });
     }
@@ -312,11 +318,13 @@ export class BackupService {
     public getStatus(): BackupStatus {
         return {
             isConfigured: this.driveClient.isConfigured(),
+            authType: this.driveClient.getAuthType(),
             schedulerActive: Boolean(this.timerHandle),
             intervalMinutes: config.env.backupIntervalMinutes,
             retentionCount: config.env.backupRetentionCount,
             targetFolderId: config.env.googleDriveFolderId,
             clientEmail: this.driveClient.getClientEmail(),
+            impersonatedUser: this.driveClient.getImpersonatedUser(),
             isBackingUp: this.isBackingUp,
             lastBackupTime: this.lastBackupTime,
             lastBackupName: this.lastBackupName,

@@ -222,15 +222,23 @@ const moduleDefinition: BotModule = {
                 } else if (subCommand === 'status') {
                     const status = backupService.getStatus();
 
+                    let authDisplay = '🔴 Not Configured';
+                    if (status.authType === 'oauth2') {
+                        authDisplay = '🟢 OAuth2 User (Refresh Token)';
+                    } else if (status.authType === 'service_account') {
+                        authDisplay = `🟢 Service Account (${status.clientEmail || 'Configured'})`;
+                        if (status.impersonatedUser) {
+                            authDisplay += ` (Impersonating: ${status.impersonatedUser})`;
+                        }
+                    }
+
                     const embed = new EmbedBuilder()
                         .setTitle('Backup Service Status')
                         .setColor(status.isConfigured ? 0x6a5acd : 0xed4245)
                         .addFields(
                             {
                                 name: 'Google Drive Auth',
-                                value: status.isConfigured
-                                    ? `🟢 Configured (${status.clientEmail || 'Service Account'})`
-                                    : '🔴 Not Configured',
+                                value: authDisplay,
                                 inline: true,
                             },
                             {

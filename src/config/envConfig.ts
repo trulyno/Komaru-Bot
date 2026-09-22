@@ -37,6 +37,10 @@ export interface EnvConfig {
     googleServiceAccountJson?: string;
     googleServiceAccountEmail?: string;
     googlePrivateKey?: string;
+    googleServiceAccountImpersonatedUser?: string;
+    googleOAuthClientId?: string;
+    googleOAuthClientSecret?: string;
+    googleOAuthRefreshToken?: string;
     googleDriveFolderId?: string;
     backupIntervalMinutes: number;
     backupRetentionCount: number;
@@ -105,6 +109,11 @@ export function loadEnvConfig(): EnvConfig {
         googlePrivateKey: process.env.GOOGLE_PRIVATE_KEY
             ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
             : undefined,
+        googleServiceAccountImpersonatedUser:
+            process.env.GOOGLE_SERVICE_ACCOUNT_IMPERSONATED_USER || undefined,
+        googleOAuthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID || undefined,
+        googleOAuthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || undefined,
+        googleOAuthRefreshToken: process.env.GOOGLE_OAUTH_REFRESH_TOKEN || undefined,
         googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || undefined,
         backupIntervalMinutes,
         backupRetentionCount,

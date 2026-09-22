@@ -9,6 +9,10 @@ export interface GoogleDriveCredentials {
     keyFilePath?: string;
     rawJson?: string;
     folderId?: string;
+    impersonatedUser?: string;
+    oauthClientId?: string;
+    oauthClientSecret?: string;
+    oauthRefreshToken?: string;
 }
 
 export interface GoogleDriveFile {
@@ -20,6 +24,8 @@ export interface GoogleDriveFile {
     mimeType?: string;
 }
 
+export type GoogleDriveAuthType = 'service_account' | 'oauth2' | 'unconfigured';
+
 interface ServiceAccountKeyFile {
     client_email?: string;
     private_key?: string;
@@ -30,10 +36,33 @@ function base64UrlEncode(data: string | Buffer): string {
     return buffer.toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
+function formatDriveApiError(action: string, status: number, errorText: string): Error {
+    if (
+        status === 403 &&
+        (errorText.includes('storageQuotaExceeded') ||
+            errorText.includes('Service Accounts do not have storage quota'))
+    ) {
+        return new Error(
+            `Google Drive ${action} failed (403): Service Accounts have 0 GB personal storage quota.\n` +
+                `To fix this, choose one of these options:\n` +
+                `1. Store backups in a Google Workspace Shared Drive and add the Service Account as Content Manager (set GOOGLE_DRIVE_FOLDER_ID to the Shared Drive or folder ID).\n` +
+                `2. Use OAuth2 User Credentials for personal @gmail.com accounts (GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN).\n` +
+                `3. Enable Google Workspace Domain-Wide Delegation (set GOOGLE_SERVICE_ACCOUNT_IMPERSONATED_USER).\n` +
+                `Original response: ${errorText}`,
+        );
+    }
+    return new Error(`Google Drive ${action} failed (${status}): ${errorText}`);
+}
+
 export class GoogleDriveClient {
     private clientEmail?: string;
     private privateKey?: string;
     private folderId?: string;
+    private impersonatedUser?: string;
+
+    private oauthClientId?: string;
+    private oauthClientSecret?: string;
+    private oauthRefreshToken?: string;
 
     private cachedAccessToken?: string;
     private tokenExpiryTime = 0;
@@ -48,6 +77,10 @@ export class GoogleDriveClient {
         this.folderId = creds.folderId;
         this.clientEmail = creds.clientEmail;
         this.privateKey = creds.privateKey;
+        this.impersonatedUser = creds.impersonatedUser;
+        this.oauthClientId = creds.oauthClientId;
+        this.oauthClientSecret = creds.oauthClientSecret;
+        this.oauthRefreshToken = creds.oauthRefreshToken;
 
         // Try raw JSON credentials
         if (creds.rawJson) {
@@ -94,8 +127,18 @@ export class GoogleDriveClient {
         }
     }
 
+    public getAuthType(): GoogleDriveAuthType {
+        if (this.oauthClientId && this.oauthClientSecret && this.oauthRefreshToken) {
+            return 'oauth2';
+        }
+        if (this.clientEmail && this.privateKey) {
+            return 'service_account';
+        }
+        return 'unconfigured';
+    }
+
     public isConfigured(): boolean {
-        return Boolean(this.clientEmail && this.privateKey);
+        return this.getAuthType() !== 'unconfigured';
     }
 
     public getFolderId(): string | undefined {
@@ -106,8 +149,12 @@ export class GoogleDriveClient {
         return this.clientEmail;
     }
 
+    public getImpersonatedUser(): string | undefined {
+        return this.impersonatedUser;
+    }
+
     /**
-     * Generates a signed RS256 JWT assertion and exchanges it for a Google OAuth2 access token.
+     * Obtains a valid Google OAuth2 access token via Refresh Token or RS256 JWT Assertion.
      */
     public async getAccessToken(): Promise<string> {
         const nowSec = Math.floor(Date.now() / 1000);
@@ -115,65 +162,104 @@ export class GoogleDriveClient {
             return this.cachedAccessToken;
         }
 
-        if (!this.clientEmail || !this.privateKey) {
-            throw new Error('Google Drive Service Account credentials are not configured.');
+        const authType = this.getAuthType();
+
+        if (authType === 'oauth2') {
+            const tokenUrl = 'https://oauth2.googleapis.com/token';
+            const body = new URLSearchParams({
+                client_id: this.oauthClientId!,
+                client_secret: this.oauthClientSecret!,
+                refresh_token: this.oauthRefreshToken!,
+                grant_type: 'refresh_token',
+            });
+
+            const response = await fetch(tokenUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: body.toString(),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(
+                    `Google OAuth2 refresh token request failed (${response.status}): ${errorText}`,
+                );
+            }
+
+            const data = (await response.json()) as { access_token: string; expires_in: number };
+            this.cachedAccessToken = data.access_token;
+            this.tokenExpiryTime = nowSec + (data.expires_in || 3600);
+
+            return this.cachedAccessToken;
         }
 
-        const header = {
-            alg: 'RS256',
-            typ: 'JWT',
-        };
+        if (authType === 'service_account') {
+            const header = {
+                alg: 'RS256',
+                typ: 'JWT',
+            };
 
-        const payload = {
-            iss: this.clientEmail,
-            scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive',
-            aud: 'https://oauth2.googleapis.com/token',
-            exp: nowSec + 3600,
-            iat: nowSec,
-        };
+            const payload: Record<string, any> = {
+                iss: this.clientEmail,
+                scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive',
+                aud: 'https://oauth2.googleapis.com/token',
+                exp: nowSec + 3600,
+                iat: nowSec,
+            };
 
-        const encodedHeader = base64UrlEncode(JSON.stringify(header));
-        const encodedPayload = base64UrlEncode(JSON.stringify(payload));
-        const signingInput = `${encodedHeader}.${encodedPayload}`;
+            if (this.impersonatedUser) {
+                payload.sub = this.impersonatedUser;
+            }
 
-        const signer = crypto.createSign('RSA-SHA256');
-        signer.update(signingInput);
-        signer.end();
-        const signature = signer.sign(this.privateKey);
-        const encodedSignature = base64UrlEncode(signature);
+            const encodedHeader = base64UrlEncode(JSON.stringify(header));
+            const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+            const signingInput = `${encodedHeader}.${encodedPayload}`;
 
-        const jwtAssertion = `${signingInput}.${encodedSignature}`;
+            const signer = crypto.createSign('RSA-SHA256');
+            signer.update(signingInput);
+            signer.end();
+            const signature = signer.sign(this.privateKey!);
+            const encodedSignature = base64UrlEncode(signature);
 
-        const tokenUrl = 'https://oauth2.googleapis.com/token';
-        const body = new URLSearchParams({
-            grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-            assertion: jwtAssertion,
-        });
+            const jwtAssertion = `${signingInput}.${encodedSignature}`;
 
-        const response = await fetch(tokenUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: body.toString(),
-        });
+            const tokenUrl = 'https://oauth2.googleapis.com/token';
+            const body = new URLSearchParams({
+                grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                assertion: jwtAssertion,
+            });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(
-                `Google OAuth2 token request failed (${response.status}): ${errorText}`,
-            );
+            const response = await fetch(tokenUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: body.toString(),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(
+                    `Google OAuth2 token request failed (${response.status}): ${errorText}`,
+                );
+            }
+
+            const data = (await response.json()) as { access_token: string; expires_in: number };
+            this.cachedAccessToken = data.access_token;
+            this.tokenExpiryTime = nowSec + (data.expires_in || 3600);
+
+            return this.cachedAccessToken;
         }
 
-        const data = (await response.json()) as { access_token: string; expires_in: number };
-        this.cachedAccessToken = data.access_token;
-        this.tokenExpiryTime = nowSec + (data.expires_in || 3600);
-
-        return this.cachedAccessToken;
+        throw new Error(
+            'Google Drive credentials are not configured. Please configure Service Account or OAuth2 credentials.',
+        );
     }
 
     /**
-     * Uploads a file (Buffer) to Google Drive via multipart upload.
+     * Uploads a file (Buffer) to Google Drive via multipart upload with Shared Drive support.
      */
     public async uploadFile(options: {
         name: string;
@@ -217,7 +303,7 @@ export class GoogleDriveClient {
         ]);
 
         const uploadUrl =
-            'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,createdTime,modifiedTime,mimeType';
+            'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,createdTime,modifiedTime,mimeType&supportsAllDrives=true';
 
         const response = await fetch(uploadUrl, {
             method: 'POST',
@@ -231,14 +317,14 @@ export class GoogleDriveClient {
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Google Drive file upload failed (${response.status}): ${errorText}`);
+            throw formatDriveApiError('file upload', response.status, errorText);
         }
 
         return (await response.json()) as GoogleDriveFile;
     }
 
     /**
-     * Lists files from Google Drive matching the query / folder.
+     * Lists files from Google Drive matching the query / folder with Shared Drive support.
      */
     public async listFiles(options?: {
         folderId?: string;
@@ -263,6 +349,9 @@ export class GoogleDriveClient {
         url.searchParams.set('pageSize', String(pageSize));
         url.searchParams.set('orderBy', 'createdTime desc');
         url.searchParams.set('fields', 'files(id,name,size,createdTime,modifiedTime,mimeType)');
+        url.searchParams.set('supportsAllDrives', 'true');
+        url.searchParams.set('includeItemsFromAllDrives', 'true');
+        url.searchParams.set('corpora', 'allDrives');
 
         const response = await fetch(url.toString(), {
             method: 'GET',
@@ -273,7 +362,7 @@ export class GoogleDriveClient {
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Google Drive list files failed (${response.status}): ${errorText}`);
+            throw formatDriveApiError('list files', response.status, errorText);
         }
 
         const data = (await response.json()) as { files?: GoogleDriveFile[] };
@@ -281,11 +370,11 @@ export class GoogleDriveClient {
     }
 
     /**
-     * Downloads a file from Google Drive as a Buffer.
+     * Downloads a file from Google Drive as a Buffer with Shared Drive support.
      */
     public async downloadFile(fileId: string): Promise<Buffer> {
         const token = await this.getAccessToken();
-        const downloadUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`;
+        const downloadUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`;
 
         const response = await fetch(downloadUrl, {
             method: 'GET',
@@ -296,8 +385,10 @@ export class GoogleDriveClient {
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(
-                `Google Drive file download failed for fileId ${fileId} (${response.status}): ${errorText}`,
+            throw formatDriveApiError(
+                `file download for fileId ${fileId}`,
+                response.status,
+                errorText,
             );
         }
 
@@ -306,11 +397,11 @@ export class GoogleDriveClient {
     }
 
     /**
-     * Deletes a file from Google Drive.
+     * Deletes a file from Google Drive with Shared Drive support.
      */
     public async deleteFile(fileId: string): Promise<void> {
         const token = await this.getAccessToken();
-        const deleteUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`;
+        const deleteUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`;
 
         const response = await fetch(deleteUrl, {
             method: 'DELETE',
@@ -321,8 +412,10 @@ export class GoogleDriveClient {
 
         if (!response.ok && response.status !== 404) {
             const errorText = await response.text();
-            throw new Error(
-                `Google Drive file delete failed for fileId ${fileId} (${response.status}): ${errorText}`,
+            throw formatDriveApiError(
+                `file delete for fileId ${fileId}`,
+                response.status,
+                errorText,
             );
         }
     }

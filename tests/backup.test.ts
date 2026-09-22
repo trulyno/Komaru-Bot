@@ -240,6 +240,223 @@ async function runSuite(): Promise<void> {
         },
     );
 
+    await runTestCase('GoogleDriveClient - OAuth2 refresh token authentication flow', async () => {
+        const originalFetch = global.fetch;
+        let capturedBody: string | undefined = undefined;
+
+        try {
+            (global as any).fetch = async (url: string, init?: RequestInit) => {
+                const urlStr = String(url);
+                if (urlStr.includes('oauth2.googleapis.com/token')) {
+                    capturedBody = init?.body ? String(init.body) : '';
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'oauth_user_access_token_abc',
+                            expires_in: 3600,
+                        }),
+                    } as any;
+                }
+                return { ok: false, status: 404, text: async () => 'Not Found' } as any;
+            };
+
+            const oauthClient = new GoogleDriveClient({
+                oauthClientId: 'client-123.apps.googleusercontent.com',
+                oauthClientSecret: 'secret-xyz',
+                oauthRefreshToken: 'refresh-token-999',
+                folderId: 'folder_oauth',
+            });
+
+            assert.strictEqual(oauthClient.isConfigured(), true);
+            assert.strictEqual(oauthClient.getAuthType(), 'oauth2');
+
+            const token = await oauthClient.getAccessToken();
+            assert.strictEqual(token, 'oauth_user_access_token_abc');
+            const bodyStr = String(capturedBody || '');
+            assert.ok(bodyStr.includes('grant_type=refresh_token'));
+            assert.ok(bodyStr.includes('client_id=client-123.apps.googleusercontent.com'));
+            assert.ok(bodyStr.includes('refresh_token=refresh-token-999'));
+        } finally {
+            global.fetch = originalFetch;
+        }
+    });
+
+    await runTestCase(
+        'GoogleDriveClient - Shared Drive supportsAllDrives params & Domain Delegation sub claim',
+        async () => {
+            const originalFetch = global.fetch;
+            const capturedUrls: string[] = [];
+            let capturedJwtAssertion: string | undefined = undefined;
+
+            try {
+                (global as any).fetch = async (url: string, init?: RequestInit) => {
+                    const urlStr = String(url);
+                    capturedUrls.push(urlStr);
+
+                    if (urlStr.includes('oauth2.googleapis.com/token')) {
+                        const body = new URLSearchParams(init?.body ? String(init.body) : '');
+                        capturedJwtAssertion = body.get('assertion') || undefined;
+                        return {
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                access_token: 'delegated_token_123',
+                                expires_in: 3600,
+                            }),
+                        } as any;
+                    }
+
+                    if (urlStr.includes('/upload/drive/v3/files')) {
+                        return {
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                id: 'sd_file_1',
+                                name: 'sd_backup.tar.gz',
+                            }),
+                        } as any;
+                    }
+
+                    if (urlStr.includes('/drive/v3/files?')) {
+                        return {
+                            ok: true,
+                            status: 200,
+                            json: async () => ({ files: [] }),
+                        } as any;
+                    }
+
+                    if (urlStr.includes('/drive/v3/files/sd_file_1?alt=media')) {
+                        return {
+                            ok: true,
+                            status: 200,
+                            arrayBuffer: async () => Buffer.from('test').buffer,
+                        } as any;
+                    }
+
+                    if (urlStr.includes('/drive/v3/files/sd_file_1') && init?.method === 'DELETE') {
+                        return { ok: true, status: 204 } as any;
+                    }
+
+                    return { ok: false, status: 404, text: async () => 'Not Found' } as any;
+                };
+
+                const delegatedClient = new GoogleDriveClient({
+                    clientEmail: 'service@example.com',
+                    privateKey: privateKey,
+                    impersonatedUser: 'admin@organization.com',
+                    folderId: 'shared_drive_folder_id',
+                });
+
+                assert.strictEqual(delegatedClient.isConfigured(), true);
+                assert.strictEqual(delegatedClient.getAuthType(), 'service_account');
+                assert.strictEqual(delegatedClient.getImpersonatedUser(), 'admin@organization.com');
+
+                await delegatedClient.uploadFile({
+                    name: 'sd_backup.tar.gz',
+                    mimeType: 'application/gzip',
+                    data: Buffer.from('test'),
+                });
+
+                await delegatedClient.listFiles();
+                await delegatedClient.downloadFile('sd_file_1');
+                await delegatedClient.deleteFile('sd_file_1');
+
+                // Verify JWT claim contains sub: 'admin@organization.com'
+                assert.ok(typeof capturedJwtAssertion === 'string');
+                const parts = (capturedJwtAssertion as string).split('.');
+                const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+                assert.strictEqual(payload.sub, 'admin@organization.com');
+
+                // Verify all API requests included supportsAllDrives
+                const uploadUrl = capturedUrls.find((u) => u.includes('/upload/drive/v3/files'));
+                assert.ok(uploadUrl?.includes('supportsAllDrives=true'));
+
+                const listUrl = capturedUrls.find(
+                    (u) => u.includes('/drive/v3/files?') && !u.includes('/upload/'),
+                );
+                assert.ok(listUrl?.includes('supportsAllDrives=true'));
+                assert.ok(listUrl?.includes('includeItemsFromAllDrives=true'));
+                assert.ok(listUrl?.includes('corpora=allDrives'));
+
+                const downloadUrl = capturedUrls.find((u) => u.includes('?alt=media'));
+                assert.ok(downloadUrl?.includes('supportsAllDrives=true'));
+
+                const deleteUrl = capturedUrls.find(
+                    (u) => u.includes('/drive/v3/files/sd_file_1') && !u.includes('?alt=media'),
+                );
+                assert.ok(deleteUrl?.includes('supportsAllDrives=true'));
+            } finally {
+                global.fetch = originalFetch;
+            }
+        },
+    );
+
+    await runTestCase(
+        'GoogleDriveClient - 403 Service Accounts storageQuotaExceeded actionable error formatting',
+        async () => {
+            const originalFetch = global.fetch;
+
+            try {
+                (global as any).fetch = async (url: string) => {
+                    const urlStr = String(url);
+                    if (urlStr.includes('oauth2.googleapis.com/token')) {
+                        return {
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                access_token: 'quota_err_tok',
+                                expires_in: 3600,
+                            }),
+                        } as any;
+                    }
+
+                    if (urlStr.includes('/upload/drive/v3/files')) {
+                        return {
+                            ok: false,
+                            status: 403,
+                            text: async () =>
+                                JSON.stringify({
+                                    error: {
+                                        code: 403,
+                                        message:
+                                            'Service Accounts do not have storage quota. Leverage shared drives or use OAuth delegation instead.',
+                                        errors: [{ reason: 'storageQuotaExceeded' }],
+                                    },
+                                }),
+                        } as any;
+                    }
+
+                    return { ok: false, status: 404, text: async () => 'Not Found' } as any;
+                };
+
+                const client = new GoogleDriveClient({
+                    clientEmail: 'service@example.com',
+                    privateKey: privateKey,
+                });
+
+                let errorThrown: Error | null = null;
+                try {
+                    await client.uploadFile({
+                        name: 'failed_backup.tar.gz',
+                        mimeType: 'application/gzip',
+                        data: Buffer.from('data'),
+                    });
+                } catch (err: any) {
+                    errorThrown = err;
+                }
+
+                assert.ok(errorThrown, 'Should throw an error on 403 quota exceeded');
+                assert.ok(errorThrown?.message.includes('0 GB personal storage quota'));
+                assert.ok(errorThrown?.message.includes('Shared Drive'));
+                assert.ok(errorThrown?.message.includes('OAuth2 User Credentials'));
+                assert.ok(errorThrown?.message.includes('Domain-Wide Delegation'));
+            } finally {
+                global.fetch = originalFetch;
+            }
+        },
+    );
+
     await runTestCase(
         'BackupService - createBackup, listBackups, and retention pruning',
         async () => {
