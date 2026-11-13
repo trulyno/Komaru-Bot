@@ -17,6 +17,8 @@ import { TriggerPool } from '../src/userCommands/triggerPool';
 import { getHelpTopicEmbed } from '../src/userCommands/helpProvider';
 import { PipelineData } from '../src/userCommands/types';
 import { SessionManager } from '../src/userCommands/sessionManager';
+import { convertLegacyTags } from '../src/userCommands/tagConverter';
+import userCommandsModule from '../src/modules/userCommands';
 import { runTestCase } from './testHarness';
 
 async function runTests() {
@@ -806,6 +808,335 @@ you say "Default category"
 
             fs.rmSync(testDir, { recursive: true, force: true });
             fs.rmSync(testConfigDir, { recursive: true, force: true });
+        },
+    );
+
+    await runTestCase('convertLegacyTags: unit conversion and overwrite logic', async () => {
+        const tempBase = path.resolve(process.cwd(), 'tests', 'temp_convert_test');
+        const mockNavPath = path.join(tempBase, 'tag_navigation.json');
+        const mockStorageDir = path.join(tempBase, 'tag_storage');
+        const mockMediaDir = path.join(tempBase, 'tag_media');
+        const mockUserCmdsDir = path.join(tempBase, 'user_commands');
+
+        fs.mkdirSync(mockStorageDir, { recursive: true });
+        fs.mkdirSync(mockMediaDir, { recursive: true });
+        fs.mkdirSync(mockUserCmdsDir, { recursive: true });
+
+        // Create sample media file
+        const sampleBuffer = Buffer.from('Fake image content 123');
+        fs.writeFileSync(path.join(mockMediaDir, 'sample.png'), sampleBuffer);
+
+        // Create mock navigation
+        const mockNav = {
+            tags: {
+                alpha: { owner: 1111111111111111, file: 'user_1111111111111111.json', aliases: [] },
+                beta: { owner: 2222222222222222, file: 'user_2222222222222222.json', aliases: [] },
+                gamma: {
+                    owner: 3333333333333333,
+                    file: 'user_3333333333333333.json',
+                    aliases: ['g_alias'],
+                },
+                delta: {
+                    owner: 4444444444444444,
+                    file: 'user_4444444444444444.json',
+                    aliases: [],
+                    type: 'logic',
+                },
+                empty: { owner: 5555555555555555, file: 'user_5555555555555555.json', aliases: [] },
+            },
+            aliases: {
+                top_g: 'gamma',
+            },
+        };
+        fs.writeFileSync(mockNavPath, JSON.stringify(mockNav, null, 2));
+
+        // Create storage files
+        fs.writeFileSync(
+            path.join(mockStorageDir, 'user_1111111111111111.json'),
+            JSON.stringify({
+                user_id: 1111111111111111,
+                tags: {
+                    alpha: {
+                        content: 'Alpha text response',
+                        created_at: '2026-01-01T00:00:00.000Z',
+                        media_files: [],
+                    },
+                },
+            }),
+        );
+        fs.writeFileSync(
+            path.join(mockStorageDir, 'user_2222222222222222.json'),
+            JSON.stringify({
+                user_id: 2222222222222222,
+                tags: {
+                    beta: {
+                        content: '',
+                        created_at: '2026-01-02T00:00:00.000Z',
+                        media_files: ['sample.png'],
+                    },
+                },
+            }),
+        );
+        fs.writeFileSync(
+            path.join(mockStorageDir, 'user_3333333333333333.json'),
+            JSON.stringify({
+                user_id: 3333333333333333,
+                tags: {
+                    gamma: {
+                        content: 'Gamma multiline\nresponse content',
+                        created_at: '2026-01-03T00:00:00.000Z',
+                        media_files: ['sample.png'],
+                    },
+                },
+            }),
+        );
+        fs.writeFileSync(
+            path.join(mockStorageDir, 'user_4444444444444444.json'),
+            JSON.stringify({
+                user_id: 4444444444444444,
+                tags: {
+                    delta: {
+                        content: '$logic{ instructions }',
+                        created_at: '2026-01-04T00:00:00.000Z',
+                        media_files: [],
+                        type: 'logic',
+                    },
+                },
+            }),
+        );
+        fs.writeFileSync(
+            path.join(mockStorageDir, 'user_5555555555555555.json'),
+            JSON.stringify({
+                user_id: 5555555555555555,
+                tags: {
+                    empty: {
+                        content: '',
+                        created_at: '2026-01-05T00:00:00.000Z',
+                        media_files: [],
+                    },
+                },
+            }),
+        );
+
+        const customStorage = new UserCommandStorage(mockUserCmdsDir);
+        const customTriggerPool = new TriggerPool(customStorage);
+        customTriggerPool.loadFromStorage();
+
+        // 1. Convert single tag with both text and media (gamma)
+        const res1 = await convertLegacyTags({
+            tag: 'gamma',
+            navigationPath: mockNavPath,
+            legacyStorageDir: mockStorageDir,
+            legacyMediaDir: mockMediaDir,
+            userCommandsStorage: customStorage,
+            triggerPool: customTriggerPool,
+        });
+
+        assert.strictEqual(res1.converted, 1);
+        assert.strictEqual(res1.overwritten, 0);
+        assert.strictEqual(res1.skipped, 0);
+        assert.strictEqual(res1.errors, 0);
+        assert.strictEqual(res1.details[0].name, 'gamma');
+
+        // Check storage output files
+        const gammaCmd = customStorage.getCommand('gamma');
+        assert.ok(gammaCmd);
+        assert.strictEqual(gammaCmd.metadata.name, 'gamma');
+        assert.strictEqual(gammaCmd.metadata.author, '3333333333333333');
+        assert.strictEqual(gammaCmd.trigger.value, 'gamma');
+        assert.deepStrictEqual(gammaCmd.aliases, ['g_alias', 'top_g']);
+        assert.strictEqual(gammaCmd.actions.length, 2);
+        assert.strictEqual(gammaCmd.actions[0].type, 'reply');
+        assert.strictEqual(gammaCmd.actions[0].value, 'Gamma multiline\nresponse content');
+        assert.strictEqual(gammaCmd.actions[1].type, 'send');
+        assert.strictEqual(gammaCmd.actions[1].value, '&1');
+        assert.ok(gammaCmd.media['&1']);
+        assert.strictEqual(gammaCmd.media['&1'].filename, 'sample.png');
+        assert.ok(fs.existsSync(gammaCmd.media['&1'].path));
+
+        // 2. Convert by alias (top_g) without overwrite -> should skip
+        const res2 = await convertLegacyTags({
+            tag: 'top_g',
+            overwrite: false,
+            navigationPath: mockNavPath,
+            legacyStorageDir: mockStorageDir,
+            legacyMediaDir: mockMediaDir,
+            userCommandsStorage: customStorage,
+            triggerPool: customTriggerPool,
+        });
+        assert.strictEqual(res2.skipped, 1);
+        assert.strictEqual(res2.converted, 0);
+        assert.strictEqual(res2.details[0].status, 'skipped');
+
+        // 3. Convert by alias with overwrite: true -> should overwrite
+        const res3 = await convertLegacyTags({
+            tag: 'top_g',
+            overwrite: true,
+            navigationPath: mockNavPath,
+            legacyStorageDir: mockStorageDir,
+            legacyMediaDir: mockMediaDir,
+            userCommandsStorage: customStorage,
+            triggerPool: customTriggerPool,
+        });
+        assert.strictEqual(res3.overwritten, 1);
+        assert.strictEqual(res3.details[0].status, 'overwritten');
+
+        // 4. Non-existent tag -> error
+        const res4 = await convertLegacyTags({
+            tag: 'non_existent_tag_123',
+            navigationPath: mockNavPath,
+            legacyStorageDir: mockStorageDir,
+            legacyMediaDir: mockMediaDir,
+            userCommandsStorage: customStorage,
+            triggerPool: customTriggerPool,
+        });
+        assert.strictEqual(res4.errors, 1);
+        assert.strictEqual(res4.converted, 0);
+
+        // 5. Convert all tags (alpha, beta, delta, empty + gamma already existing)
+        const resAll = await convertLegacyTags({
+            navigationPath: mockNavPath,
+            legacyStorageDir: mockStorageDir,
+            legacyMediaDir: mockMediaDir,
+            userCommandsStorage: customStorage,
+            triggerPool: customTriggerPool,
+            overwrite: false,
+        });
+
+        assert.strictEqual(resAll.totalScanned, 5);
+        assert.strictEqual(resAll.converted, 4); // alpha, beta, delta, empty
+        assert.strictEqual(resAll.skipped, 1); // gamma already exists
+        assert.strictEqual(resAll.errors, 0);
+
+        // Verify delta (logic tag)
+        const deltaCmd = customStorage.getCommand('delta');
+        assert.ok(deltaCmd);
+        assert.strictEqual(deltaCmd.actions.length, 1);
+        assert.strictEqual(deltaCmd.actions[0].type, 'reply');
+        assert.ok(deltaCmd.actions[0].value.toString().includes('Logic tags are not supported'));
+
+        // Verify empty tag
+        const emptyCmd = customStorage.getCommand('empty');
+        assert.ok(emptyCmd);
+        assert.strictEqual(emptyCmd.actions.length, 1);
+        assert.strictEqual(emptyCmd.actions[0].type, 'reply');
+        assert.ok(emptyCmd.actions[0].value.toString().includes('no content or media'));
+
+        // Verify beta (media only)
+        const betaCmd = customStorage.getCommand('beta');
+        assert.ok(betaCmd);
+        assert.strictEqual(betaCmd.actions.length, 1);
+        assert.strictEqual(betaCmd.actions[0].type, 'send');
+        assert.strictEqual(betaCmd.actions[0].value, '&1');
+
+        fs.rmSync(tempBase, { recursive: true, force: true });
+    });
+
+    await runTestCase(
+        'convert_legacy_tags: Slash command and text command registration & permissions',
+        async () => {
+            let msgHandler: any = null;
+            const mockClient = {
+                user: { id: 'bot_test_client' },
+                on: (event: string, handler: any) => {
+                    if (event === 'messageCreate') {
+                        msgHandler = handler;
+                    }
+                },
+            };
+
+            await userCommandsModule.register(mockClient);
+
+            // 1. Verify Slash Command registered
+            const slashCmd = commandRegistry.get('convert_legacy_tags');
+            assert.ok(slashCmd, 'convert_legacy_tags should be registered in commandRegistry');
+            assert.strictEqual(slashCmd.name, 'convert_legacy_tags');
+            assert.ok(slashCmd.description.includes('Convert legacy tags'));
+            assert.strictEqual(slashCmd.options?.length, 3);
+            assert.strictEqual(slashCmd.options[0].name, 'tag');
+            assert.strictEqual(slashCmd.options[1].name, 'overwrite');
+            assert.strictEqual(slashCmd.options[2].name, 'category');
+
+            // 2. Slash command non-admin permission block
+            let repliedContent = '';
+            const nonAdminInteraction = {
+                user: { id: 'user_normie' },
+                client: mockClient,
+                memberPermissions: { has: () => false },
+                reply: async (payload: any) => {
+                    repliedContent = payload.content;
+                },
+            };
+            await slashCmd.handler(nonAdminInteraction);
+            assert.ok(repliedContent.includes('must be an administrator'));
+
+            // 3. Slash command admin execution
+            let deferred = false;
+            let editRepliedContent = '';
+            const adminInteraction = {
+                user: { id: 'user_admin' },
+                client: mockClient,
+                guild: { id: 'guild_1', channels: { cache: new Map() } },
+                memberPermissions: { has: (p: string) => p === 'Administrator' },
+                options: {
+                    getString: (name: string) => (name === 'tag' ? 'komaru' : undefined),
+                    getBoolean: (name: string) => (name === 'overwrite' ? true : false),
+                },
+                deferReply: async () => {
+                    deferred = true;
+                },
+                editReply: async (payload: any) => {
+                    editRepliedContent = payload.content;
+                },
+                reply: async (payload: any) => {
+                    repliedContent = payload.content;
+                },
+            };
+            await slashCmd.handler(adminInteraction);
+            assert.strictEqual(deferred, true);
+            assert.ok(
+                editRepliedContent.includes('Successfully converted legacy tag **komaru**') ||
+                    editRepliedContent.includes('Conversion Complete'),
+            );
+
+            // 4. Text command non-admin block
+            assert.ok(msgHandler, 'messageCreate listener should be registered');
+            let textReplied = '';
+            const nonAdminMsg = {
+                author: { id: 'user_normie', bot: false },
+                content: '!convert_legacy_tags komaru',
+                guildId: 'guild_1',
+                channelId: 'chan_1',
+                member: { permissions: { has: () => false } },
+                reply: async (payload: any) => {
+                    textReplied = typeof payload === 'string' ? payload : payload.content;
+                },
+            };
+            await msgHandler(nonAdminMsg);
+            assert.ok(textReplied.includes('Admin permissions required'));
+
+            // 5. Text command admin execution
+            let adminTextReplied = '';
+            const adminMsg = {
+                author: { id: 'user_admin', bot: false },
+                content: '!convert_legacy_tags komaru --overwrite',
+                guildId: 'guild_1',
+                channelId: 'chan_1',
+                guild: { id: 'guild_1', channels: { cache: new Map() } },
+                member: { permissions: { has: (p: string) => p === 'Administrator' } },
+                reply: async (payload: any) => {
+                    adminTextReplied = typeof payload === 'string' ? payload : payload.content;
+                },
+            };
+            await msgHandler(adminMsg);
+            assert.ok(
+                adminTextReplied.includes('Successfully converted legacy tag **komaru**') ||
+                    adminTextReplied.includes('Conversion Complete'),
+            );
+
+            // Cleanup test command
+            const realStorage = new UserCommandStorage();
+            realStorage.deleteCommand('komaru');
         },
     );
 }

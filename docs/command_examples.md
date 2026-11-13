@@ -231,6 +231,10 @@ you reply "Done!"
     - Slash command: `/view_storage_config`
     - Text command: `!view_storage_config`
 
+- **Convert Legacy Tags to User Commands:**
+    - Slash command: `/convert_legacy_tags [tag: <name>] [overwrite: true/false] [category: <cat>]`
+    - Text command: `!convert_legacy_tags [tag] [--overwrite] [--category <cat>]`
+
 ## Bot Owner Commands
 
 - **Set Role Storage Quota (Bot Owner Only):**

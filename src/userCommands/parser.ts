@@ -735,11 +735,30 @@ function splitStructuralLines(rawText: string): string[] {
 
 function stripComments(text: string): string {
     const lines = text.split('\n');
+    let inTripleQuotes = false;
     return lines
         .map((line) => {
+            if (inTripleQuotes) {
+                if (line.includes('"""')) {
+                    inTripleQuotes = false;
+                    const afterIdx = line.indexOf('"""') + 3;
+                    const after = line.substring(afterIdx);
+                    const commentIdx = after.indexOf('#');
+                    if (commentIdx !== -1) {
+                        return line.substring(0, afterIdx + commentIdx);
+                    }
+                    return line;
+                }
+                return line;
+            }
             let inQuotes = false;
             let quoteChar = '';
             for (let i = 0; i < line.length; i++) {
+                if (line.substring(i, i + 3) === '"""') {
+                    inTripleQuotes = true;
+                    i += 2;
+                    continue;
+                }
                 const char = line[i];
                 if ((char === '"' || char === "'") && (i === 0 || line[i - 1] !== '\\')) {
                     if (!inQuotes) {
@@ -748,7 +767,7 @@ function stripComments(text: string): string {
                     } else if (quoteChar === char) {
                         inQuotes = false;
                     }
-                } else if (char === '#' && !inQuotes) {
+                } else if (char === '#' && !inQuotes && !inTripleQuotes) {
                     return line.substring(0, i);
                 }
             }
@@ -761,7 +780,7 @@ function parseActionLine(
     line: string,
     varAliases: Record<string, number>,
 ): UserCommandAction | null {
-    const memMatch = line.match(/^memorize\s+\[([a-zA-Z0-9_-]+)\]\s+(.+)$/i);
+    const memMatch = line.match(/^memorize\s+\[([a-zA-Z0-9_-]+)\]\s+([\s\S]+)$/i);
     if (memMatch) {
         const slotRef = memMatch[1];
         const slot = resolveSlotRef(slotRef, varAliases);
@@ -774,7 +793,7 @@ function parseActionLine(
         };
     }
 
-    const actMatch = line.match(/^(you\s+)?(say|reply|whisper|wisper|send)\s+(.+)$/i);
+    const actMatch = line.match(/^(you\s+)?(say|reply|whisper|wisper|send)\s+([\s\S]+)$/i);
     if (actMatch) {
         let actionType = actMatch[2].toLowerCase();
         if (actionType === 'wisper') actionType = 'whisper';

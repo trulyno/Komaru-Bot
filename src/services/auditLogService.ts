@@ -140,8 +140,8 @@ export function getAuditChannel(guild: any): any | null {
     }
 
     const channel =
-        guild.channels.cache?.get?.(configuredChannelId) ??
-        (typeof guild.channels.resolve === 'function'
+        guild.channels?.cache?.get?.(configuredChannelId) ??
+        (typeof guild.channels?.resolve === 'function'
             ? guild.channels.resolve(configuredChannelId)
             : null);
     if (channel?.isTextBased?.()) {

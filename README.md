@@ -50,4 +50,3 @@ The deployment pipeline (`scripts/deploy.ts` / `./deploy.sh`) enforces strict qu
 9. **Stage 9: Deployment Manifest Generation** (Writes `deployment_info.json` with commit, branch, timestamp)
 
 If any check fails at any stage, the pipeline **aborts immediately** and leaves the production environment untouched.
-

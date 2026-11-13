@@ -9,6 +9,7 @@ import { getHelpTopicEmbed } from '../userCommands/helpProvider';
 import { UserCommandTrigger } from '../userCommands/types';
 import { config } from '../config';
 import { sendAuditLog } from '../services/auditLogService';
+import { convertLegacyTags } from '../userCommands/tagConverter';
 
 const storage = new UserCommandStorage();
 const configStore = new ConfigStore();
@@ -79,6 +80,11 @@ const moduleDefinition: BotModule = {
                 name: 'cmd_test',
                 description: 'Test evaluating user command DSL script text',
                 usage: '/cmd_test <script:string>',
+            },
+            {
+                name: 'convert_legacy_tags',
+                description: '[Admin] Convert legacy tags into user commands',
+                usage: '/convert_legacy_tags [tag:string] [overwrite:boolean] [category:string]',
             },
         ],
         examples: [
@@ -1393,6 +1399,123 @@ const moduleDefinition: BotModule = {
             },
         });
 
+        commandRegistry.register({
+            name: 'convert_legacy_tags',
+            description: '[Admin] Convert legacy tags into user commands',
+            options: [
+                {
+                    name: 'tag',
+                    description: 'Specific legacy tag to convert (leave empty to convert all)',
+                    type: 3, // STRING
+                    required: false,
+                },
+                {
+                    name: 'overwrite',
+                    description:
+                        'Overwrite existing user commands with the same name (default: false)',
+                    type: 5, // BOOLEAN
+                    required: false,
+                },
+                {
+                    name: 'category',
+                    description: 'Category for the converted commands (default: General)',
+                    type: 3, // STRING
+                    required: false,
+                },
+            ],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, interaction.client)
+                ) {
+                    await interaction.reply({
+                        content:
+                            '[Error] You must be an administrator or bot owner to convert legacy tags.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (typeof interaction.deferReply === 'function') {
+                    await interaction.deferReply({ ephemeral: true });
+                }
+
+                const specificTag = interaction.options?.getString?.('tag') || undefined;
+                const overwrite = interaction.options?.getBoolean?.('overwrite') ?? false;
+                const category = interaction.options?.getString?.('category') || undefined;
+
+                try {
+                    const result = await convertLegacyTags({
+                        tag: specificTag,
+                        overwrite,
+                        category,
+                        userCommandsStorage: storage,
+                        triggerPool,
+                    });
+
+                    let replyMessage = '';
+                    if (specificTag) {
+                        const detail = result.details[0];
+                        if (detail?.status === 'converted' || detail?.status === 'overwritten') {
+                            replyMessage = `[Success] Successfully converted legacy tag **${detail.name}** into a user command! (${detail.status === 'overwritten' ? 'overwritten' : 'new'})`;
+                        } else if (detail?.status === 'skipped') {
+                            replyMessage = `[Skipped] Skipped legacy tag **${detail.name}**: ${detail.reason || 'User command already exists (use overwrite: true to replace).'}`;
+                        } else {
+                            replyMessage = `[Error] Failed to convert legacy tag **${specificTag}**: ${detail?.reason || 'Tag not found'}`;
+                        }
+                    } else {
+                        replyMessage =
+                            `**Legacy Tags Conversion Complete:**\n` +
+                            `- Total scanned: **${result.totalScanned}**\n` +
+                            `- Converted (new): **${result.converted}**\n` +
+                            `- Overwritten: **${result.overwritten}**\n` +
+                            `- Skipped: **${result.skipped}**\n` +
+                            `- Errors: **${result.errors}**`;
+                    }
+
+                    if (typeof interaction.editReply === 'function') {
+                        await interaction.editReply({ content: replyMessage });
+                    } else {
+                        await interaction.reply({ content: replyMessage, ephemeral: true });
+                    }
+
+                    try {
+                        if (interaction.guild) {
+                            await sendAuditLog(
+                                interaction.guild,
+                                'Legacy Tags Converted to User Commands',
+                                `Legacy tags conversion run by <@${interaction.user.id}>.\nConverted: ${result.converted}, Overwritten: ${result.overwritten}, Skipped: ${result.skipped}, Errors: ${result.errors}.`,
+                                [
+                                    { name: 'Executed By', value: `<@${interaction.user.id}>` },
+                                    { name: 'Target Tag', value: specificTag || 'All tags' },
+                                    { name: 'Overwrite', value: String(overwrite) },
+                                    { name: 'Converted', value: String(result.converted) },
+                                    { name: 'Overwritten', value: String(result.overwritten) },
+                                    { name: 'Skipped', value: String(result.skipped) },
+                                ],
+                            );
+                        }
+                    } catch (auditErr) {
+                        logger.warn(
+                            `Could not send audit log for convert_legacy_tags: ${auditErr}`,
+                        );
+                    }
+                } catch (error) {
+                    logger.error(`Error during legacy tags conversion: ${error}`);
+                    if (typeof interaction.editReply === 'function') {
+                        await interaction.editReply({
+                            content: `❌ An error occurred during legacy tag conversion: ${error}`,
+                        });
+                    } else {
+                        await interaction.reply({
+                            content: `❌ An error occurred during legacy tag conversion: ${error}`,
+                            ephemeral: true,
+                        });
+                    }
+                }
+            },
+        });
+
         logger.info('Registered userCommands module listeners, utilities, and admin commands.');
     },
 };
@@ -2028,6 +2151,100 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
             await message.reply(`✅ Allowed command creation channels set to: **${updated}**.`);
             return true;
         }
+        case 'convert_legacy_tags':
+        case 'usercmd_convert_legacy_tags':
+        case 'convert_tags': {
+            if (!isAdmin && !owner) {
+                await message.reply('[Error] Admin permissions required.');
+                return true;
+            }
+
+            const rawArgs = [arg1, ...(restArgs ? restArgs.split(/\s+/) : [])].filter(Boolean);
+            const overwrite = rawArgs.some(
+                (a) => a.toLowerCase() === '--overwrite' || a.toLowerCase() === '-o',
+            );
+            const categoryIndex = rawArgs.findIndex(
+                (a) => a.toLowerCase() === '--category' || a.toLowerCase() === '-c',
+            );
+            let category: string | undefined;
+            if (categoryIndex !== -1 && rawArgs[categoryIndex + 1]) {
+                category = rawArgs[categoryIndex + 1];
+            }
+
+            const nonFlagArgs = rawArgs.filter(
+                (a, idx) =>
+                    !a.startsWith('--') &&
+                    !a.startsWith('-') &&
+                    (categoryIndex === -1 || idx !== categoryIndex + 1),
+            );
+            const specificTag =
+                nonFlagArgs.length > 0 && nonFlagArgs[0].toLowerCase() !== 'all'
+                    ? nonFlagArgs[0]
+                    : undefined;
+
+            try {
+                const result = await convertLegacyTags({
+                    tag: specificTag,
+                    overwrite,
+                    category,
+                    userCommandsStorage: storage,
+                    triggerPool,
+                });
+
+                if (specificTag) {
+                    const detail = result.details[0];
+                    if (detail?.status === 'converted' || detail?.status === 'overwritten') {
+                        await message.reply(
+                            `[Success] Successfully converted legacy tag **${detail.name}** into a user command! (${detail.status === 'overwritten' ? 'overwritten' : 'new'})`,
+                        );
+                    } else if (detail?.status === 'skipped') {
+                        await message.reply(
+                            `[Skipped] Skipped legacy tag **${detail.name}**: ${detail.reason || 'User command already exists (pass --overwrite to replace).'}`,
+                        );
+                    } else {
+                        await message.reply(
+                            `[Error] Failed to convert legacy tag **${specificTag}**: ${detail?.reason || 'Tag not found'}`,
+                        );
+                    }
+                } else {
+                    await message.reply(
+                        `**Legacy Tags Conversion Complete:**\n` +
+                            `- Total scanned: **${result.totalScanned}**\n` +
+                            `- Converted (new): **${result.converted}**\n` +
+                            `- Overwritten: **${result.overwritten}**\n` +
+                            `- Skipped: **${result.skipped}**\n` +
+                            `- Errors: **${result.errors}**`,
+                    );
+                }
+
+                try {
+                    if (message.guild) {
+                        await sendAuditLog(
+                            message.guild,
+                            'Legacy Tags Converted to User Commands',
+                            `Legacy tags conversion run by <@${userId}>.\nConverted: ${result.converted}, Overwritten: ${result.overwritten}, Skipped: ${result.skipped}, Errors: ${result.errors}.`,
+                            [
+                                { name: 'Executed By', value: `<@${userId}>` },
+                                { name: 'Target Tag', value: specificTag || 'All tags' },
+                                { name: 'Overwrite', value: String(overwrite) },
+                                { name: 'Converted', value: String(result.converted) },
+                                { name: 'Overwritten', value: String(result.overwritten) },
+                                { name: 'Skipped', value: String(result.skipped) },
+                            ],
+                        );
+                    }
+                } catch (auditErr) {
+                    logger.warn(`Could not send audit log for convert_legacy_tags: ${auditErr}`);
+                }
+            } catch (error) {
+                logger.error(`Error during legacy tags conversion: ${error}`);
+                await message.reply(
+                    `[Error] An error occurred during legacy tag conversion: ${error}`,
+                );
+            }
+
+            return true;
+        }
         case 'user_command_help':
         case 'usercommands_help':
         case 'cmdhelp': {
@@ -2089,4 +2306,4 @@ function deleteUserCommand(name: string): boolean {
 
 export default moduleDefinition;
 export const module = moduleDefinition;
-export { storage, triggerPool, sessionManager, configStore, quotaManager };
+export { storage, triggerPool, sessionManager, configStore, quotaManager, convertLegacyTags };
