@@ -31,20 +31,6 @@ export interface EnvConfig {
     ticketInactivityHours: number;
     ticketCategoryId?: string;
     ticketCategoryName: string;
-
-    // Google Drive & Backup System
-    googleServiceAccountKeyPath?: string;
-    googleServiceAccountJson?: string;
-    googleServiceAccountEmail?: string;
-    googlePrivateKey?: string;
-    googleServiceAccountImpersonatedUser?: string;
-    googleOAuthClientId?: string;
-    googleOAuthClientSecret?: string;
-    googleOAuthRefreshToken?: string;
-    googleDriveFolderId?: string;
-    backupIntervalMinutes: number;
-    backupRetentionCount: number;
-    backupEnabled: boolean;
 }
 
 export function loadEnvConfig(): EnvConfig {
@@ -66,14 +52,6 @@ export function loadEnvConfig(): EnvConfig {
 
     const rawTicketInactivity = process.env.TICKET_INACTIVITY_HOURS;
     const ticketInactivityHours = Number(rawTicketInactivity) || 24;
-
-    const rawBackupInterval = process.env.BACKUP_INTERVAL_MINUTES;
-    const backupIntervalMinutes = Number(rawBackupInterval) > 0 ? Number(rawBackupInterval) : 360;
-
-    const rawBackupRetention = process.env.BACKUP_RETENTION_COUNT;
-    const backupRetentionCount = Number(rawBackupRetention) > 0 ? Number(rawBackupRetention) : 10;
-
-    const backupEnabled = process.env.BACKUP_ENABLED !== 'false';
 
     return {
         discordToken: process.env.DISCORD_TOKEN || '',
@@ -102,21 +80,5 @@ export function loadEnvConfig(): EnvConfig {
         ticketInactivityHours,
         ticketCategoryId: process.env.TICKET_CATEGORY_ID || undefined,
         ticketCategoryName: process.env.TICKET_CATEGORY_NAME || 'Tickets',
-
-        googleServiceAccountKeyPath: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH || undefined,
-        googleServiceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON || undefined,
-        googleServiceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || undefined,
-        googlePrivateKey: process.env.GOOGLE_PRIVATE_KEY
-            ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
-            : undefined,
-        googleServiceAccountImpersonatedUser:
-            process.env.GOOGLE_SERVICE_ACCOUNT_IMPERSONATED_USER || undefined,
-        googleOAuthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID || undefined,
-        googleOAuthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET || undefined,
-        googleOAuthRefreshToken: process.env.GOOGLE_OAUTH_REFRESH_TOKEN || undefined,
-        googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || undefined,
-        backupIntervalMinutes,
-        backupRetentionCount,
-        backupEnabled,
     };
 }
