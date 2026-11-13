@@ -66,6 +66,7 @@ for arg in "$@"; do
             echo "  --help, -h            Show this help message"
             echo ""
             echo "By default, run.sh builds the project and starts the bot in production mode."
+            echo "To run the pre-built production bot directly without rebuilding, use ./run-prod.sh."
             exit 0
             ;;
     esac
@@ -85,13 +86,22 @@ else
     echo "[INFO] Building project..."
     npm run build
 
-    echo "[INFO] Starting bot in PRODUCTION mode..."
+    PROD_ARGS=()
     if [ "$AUTO_RESTART" = true ]; then
-        while true; do
-            npm run start || echo "[WARNING] Bot process exited with status $?. Restarting in 3 seconds..."
-            sleep 3
-        done
+        PROD_ARGS+=("--loop")
+    fi
+
+    if [ -f "./run-prod.sh" ]; then
+        exec ./run-prod.sh "${PROD_ARGS[@]}"
     else
-        exec npm run start
+        echo "[INFO] Starting bot in PRODUCTION mode..."
+        if [ "$AUTO_RESTART" = true ]; then
+            while true; do
+                npm run start || echo "[WARNING] Bot process exited with status $?. Restarting in 3 seconds..."
+                sleep 3
+            done
+        else
+            exec npm run start
+        fi
     fi
 fi

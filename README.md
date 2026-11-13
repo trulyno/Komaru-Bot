@@ -33,7 +33,9 @@ Komaru the Cat is an event-driven Discord application written in TypeScript (Nod
 - `./deploy.sh` / `npm run deploy` - Run the automated multi-stage pipeline and deploy to production (`/home/komarubot-prod`)
 - `./deploy.sh --dry-run` / `npm run deploy:dry-run` - Run all pipeline quality gates (lint, typecheck, tests, build) without writing files to prod
 - `./run.sh --deploy` - Trigger the deployment pipeline via `run.sh`
-- `./run.sh` / `npm run start` - Start the compiled bot in production mode (`node dist/index.js`)
+- `./run.sh` - Compile TypeScript and start the bot in production mode
+- `./run-prod.sh` / `npm run start` - Start the pre-compiled bot in production mode (`node dist/index.js`) without compiling
+- `./run-prod.sh --loop` - Start the production bot with automatic crash restart loop
 
 ## Production Deployment Pipeline
 
@@ -45,7 +47,7 @@ The deployment pipeline (`scripts/deploy.ts` / `./deploy.sh`) enforces strict qu
 4. **Stage 4: Clean TypeScript Compilation** (Compiles `src/` to `dist/`)
 5. **Stage 5: Build Output Integrity Check** (Validates `dist/index.js`, modules, services, configs)
 6. **Stage 6: Target Environment Preparation** (Prepares target directory e.g. `/home/komarubot-prod`)
-7. **Stage 7: Safe Distribution Sync** (Syncs `dist/`, assets, and runner scripts; preserves live `.env` and persistent state in `data/`)
+7. **Stage 7: Safe Distribution Sync** (Syncs `dist/`, assets, and production runner scripts (`run-prod.sh`); preserves live `.env` and persistent state in `data/`)
 8. **Stage 8: Production Dependency Installation** (`npm install --omit=dev --legacy-peer-deps`)
 9. **Stage 9: Deployment Manifest Generation** (Writes `deployment_info.json` with commit, branch, timestamp)
 

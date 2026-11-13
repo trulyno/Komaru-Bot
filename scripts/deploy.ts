@@ -304,15 +304,31 @@ async function main(): Promise<void> {
     }
     logSuccess('Synced package manifest and lockfile.');
 
-    // 7.3 Deploy run.sh script & set executable
-    const targetRunScript = path.join(options.targetDir, 'run.sh');
-    fs.copyFileSync(path.join(projectRoot, 'run.sh'), targetRunScript);
+    // 7.3 Deploy run-prod.sh runner script & set executable
+    const targetProdScript = path.join(options.targetDir, 'run-prod.sh');
+    fs.copyFileSync(path.join(projectRoot, 'run-prod.sh'), targetProdScript);
     try {
-        fs.chmodSync(targetRunScript, 0o755);
+        fs.chmodSync(targetProdScript, 0o755);
     } catch {
         // ignore on non-posix
     }
-    logSuccess('Deployed production run.sh runner script.');
+    logSuccess('Deployed production run-prod.sh runner script.');
+
+    // Also link run.sh in prod to run-prod.sh for backward compatibility
+    const targetRunScript = path.join(options.targetDir, 'run.sh');
+    try {
+        if (fs.existsSync(targetRunScript)) {
+            fs.unlinkSync(targetRunScript);
+        }
+        fs.symlinkSync('run-prod.sh', targetRunScript);
+    } catch {
+        try {
+            fs.copyFileSync(targetProdScript, targetRunScript);
+            fs.chmodSync(targetRunScript, 0o755);
+        } catch {
+            // ignore
+        }
+    }
 
     // 7.4 Sync data/ directory (Preserving existing user state)
     const sourceDataDir = path.join(projectRoot, 'data');
@@ -408,9 +424,9 @@ async function main(): Promise<void> {
         `Manifest:     ${colors.cyan}${path.join(options.targetDir, 'deployment_info.json')}${colors.reset}`,
     );
     console.log(`\n${colors.bright}How to start/run the production bot:${colors.reset}`);
-    console.log(`  cd ${options.targetDir} && ./run.sh --loop`);
+    console.log(`  cd ${options.targetDir} && ./run-prod.sh --loop`);
     console.log(`  Or in a screen session:`);
-    console.log(`  screen -S komaru-prod ${options.targetDir}/run.sh --loop\n`);
+    console.log(`  screen -S komaru-prod ${options.targetDir}/run-prod.sh --loop\n`);
 
     if (options.restart) {
         console.log(
@@ -425,12 +441,12 @@ async function main(): Promise<void> {
                 );
                 execSync('screen -S komaru-prod -X stuff "^C\n" || true');
                 execSync(
-                    `screen -S komaru-prod -X stuff "cd ${options.targetDir} && ./run.sh --loop\n" || true`,
+                    `screen -S komaru-prod -X stuff "cd ${options.targetDir} && ./run-prod.sh --loop\n" || true`,
                 );
                 logSuccess("Restart command sent to screen session 'komaru-prod'.");
             } else {
                 logWarning("No active screen session named 'komaru-prod' found. Start one with:");
-                console.log(`  screen -S komaru-prod ${options.targetDir}/run.sh --loop`);
+                console.log(`  screen -S komaru-prod ${options.targetDir}/run-prod.sh --loop`);
             }
         } catch (err: any) {
             logWarning(`Could not auto-restart process: ${err?.message || err}`);
