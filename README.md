@@ -43,7 +43,7 @@ The deployment pipeline (`scripts/deploy.ts` / `./deploy.sh`) enforces strict qu
 
 1. **Stage 1: Code Quality & Lint Check** (`npm run lint`)
 2. **Stage 2: TypeScript Type Checking** (`npm run lint:typecheck`)
-3. **Stage 3: Automated Test Suite** (All 17 test suites via `npm test`)
+3. **Stage 3: Automated Test Suite** (All 18 test suites via `npm test`)
 4. **Stage 4: Clean TypeScript Compilation** (Compiles `src/` to `dist/`)
 5. **Stage 5: Build Output Integrity Check** (Validates `dist/index.js`, modules, services, configs)
 6. **Stage 6: Target Environment Preparation** (Prepares target directory e.g. `/home/komarubot-prod`)
@@ -52,3 +52,9 @@ The deployment pipeline (`scripts/deploy.ts` / `./deploy.sh`) enforces strict qu
 9. **Stage 9: Deployment Manifest Generation** (Writes `deployment_info.json` with commit, branch, timestamp)
 
 If any check fails at any stage, the pipeline **aborts immediately** and leaves the production environment untouched.
+
+## Versioning & Changelog
+
+- `/changelog` / `!changelog`: Displays the current bot version and changes introduced in that version.
+- `/changelog [version]` / `!changelog [version]`: Inspects release notes for any recorded version (e.g. `/changelog version:0.4.0`).
+- Changelog tracking began at version `0.4.0`. Full release history is maintained in `CHANGELOG.md` and `data/changelog.json`.

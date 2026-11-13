@@ -364,6 +364,13 @@ async function main(): Promise<void> {
             fs.mkdirSync(targetMediaDir, { recursive: true });
         }
 
+        // Always sync latest changelog data into target data directory
+        const sourceChangelog = path.join(sourceDataDir, 'changelog.json');
+        const targetChangelog = path.join(targetDataDir, 'changelog.json');
+        if (fs.existsSync(sourceChangelog)) {
+            fs.copyFileSync(sourceChangelog, targetChangelog);
+        }
+
         logSuccess(
             'Synced data directory (existing production data preserved; dev/test user commands excluded).',
         );

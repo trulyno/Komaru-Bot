@@ -5,6 +5,7 @@ import { moduleLoader } from './moduleLoader';
 import { once } from 'node:events';
 import { cleanAndSyncCommands, restartBot, stopBot, syncCommands } from './commandHandlers';
 import { commandRegistry } from './commandRegistry';
+import { resolveBotVersion } from './services/changelogService';
 
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 
@@ -36,7 +37,9 @@ async function main(): Promise<void> {
     await moduleLoader.loadAll();
 
     client.once('clientReady', () => {
-        logger.info(`Komaru the Cat ready as ${client.user?.tag ?? 'unknown'}`);
+        logger.info(
+            `Komaru the Cat v${resolveBotVersion()} ready as ${client.user?.tag ?? 'unknown'}`,
+        );
     });
 
     client.login(token).catch((error: unknown) => {
@@ -59,6 +62,7 @@ async function main(): Promise<void> {
                         color: 0x6a5acd,
                         fields: [
                             { name: 'Status', value: 'Online' },
+                            { name: 'Version', value: `v${resolveBotVersion()}` },
                             {
                                 name: 'Modules',
                                 value: String(

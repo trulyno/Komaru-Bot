@@ -1,0 +1,31 @@
+{
+    "versions": [
+        {
+            "version": "0.4.0",
+            "date": "2026-11-13",
+            "title": "Legacy Tag Conversion & Production Deployment Pipeline",
+            "description": "Changelog tracking introduced. Major updates to deployment infrastructure, quality gates, and legacy tag migration.",
+            "sections": [
+                {
+                    "title": "Added",
+                    "items": [
+                        "Changelog system and /changelog command with version inspection and historical release notes.",
+                        "Legacy tag conversion command (/convert_legacy_tags) and migration engine converting legacy tags into rich user commands.",
+                        "Production deployment pipeline (scripts/deploy.ts, deploy.sh, run-prod.sh) with strict multi-stage quality gates."
+                    ]
+                },
+                {
+                    "title": "Changed",
+                    "items": [
+                        "Deployment pipeline configured to strictly exclude dev and test environment user commands from production targets.",
+                        "Updated slash command synchronization and module loading diagnostics."
+                    ]
+                },
+                {
+                    "title": "Removed",
+                    "items": ["Google Drive backup service and associated commands."]
+                }
+            ]
+        }
+    ]
+}
