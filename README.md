@@ -47,7 +47,7 @@ The deployment pipeline (`scripts/deploy.ts` / `./deploy.sh`) enforces strict qu
 4. **Stage 4: Clean TypeScript Compilation** (Compiles `src/` to `dist/`)
 5. **Stage 5: Build Output Integrity Check** (Validates `dist/index.js`, modules, services, configs)
 6. **Stage 6: Target Environment Preparation** (Prepares target directory e.g. `/home/komarubot-prod`)
-7. **Stage 7: Safe Distribution Sync** (Syncs `dist/`, assets, and production runner scripts (`run-prod.sh`); preserves live `.env` and persistent state in `data/`)
+7. **Stage 7: Safe Distribution Sync** (Syncs `dist/`, assets, and production runner scripts (`run-prod.sh`); preserves live `.env`, production user commands, and runtime state in `data/`, excluding test/dev commands)
 8. **Stage 8: Production Dependency Installation** (`npm install --omit=dev --legacy-peer-deps`)
 9. **Stage 9: Deployment Manifest Generation** (Writes `deployment_info.json` with commit, branch, timestamp)
 

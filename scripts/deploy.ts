@@ -109,11 +109,16 @@ function runCommand(
     return result.status === 0;
 }
 
-function copyRecursiveSync(
-    src: string,
-    dest: string,
-    options: { preserveExisting?: boolean } = {},
-): void {
+interface CopyOptions {
+    preserveExisting?: boolean;
+    exclude?: (srcPath: string, destPath: string) => boolean;
+}
+
+function copyRecursiveSync(src: string, dest: string, options: CopyOptions = {}): void {
+    if (options.exclude && options.exclude(src, dest)) {
+        return;
+    }
+
     const stats = fs.statSync(src);
     if (stats.isDirectory()) {
         if (!fs.existsSync(dest)) {
@@ -330,13 +335,37 @@ async function main(): Promise<void> {
         }
     }
 
-    // 7.4 Sync data/ directory (Preserving existing user state)
+    // 7.4 Sync data/ directory (Preserving existing user state, strictly excluding test/dev user commands)
     const sourceDataDir = path.join(projectRoot, 'data');
     const targetDataDir = path.join(options.targetDir, 'data');
     if (fs.existsSync(sourceDataDir)) {
-        copyRecursiveSync(sourceDataDir, targetDataDir, { preserveExisting: true });
+        const sourceUserCommandsDir = path.join(sourceDataDir, 'user_commands');
+        copyRecursiveSync(sourceDataDir, targetDataDir, {
+            preserveExisting: true,
+            exclude: (srcPath) => {
+                // Strictly exclude user commands from test/dev environment
+                if (
+                    srcPath === sourceUserCommandsDir ||
+                    srcPath.startsWith(sourceUserCommandsDir + path.sep)
+                ) {
+                    return true;
+                }
+                return false;
+            },
+        });
+
+        // Ensure user_commands directory structure exists in production target
+        const targetUserCommandsDir = path.join(targetDataDir, 'user_commands');
+        if (!fs.existsSync(targetUserCommandsDir)) {
+            fs.mkdirSync(targetUserCommandsDir, { recursive: true });
+        }
+        const targetMediaDir = path.join(targetUserCommandsDir, 'media');
+        if (!fs.existsSync(targetMediaDir)) {
+            fs.mkdirSync(targetMediaDir, { recursive: true });
+        }
+
         logSuccess(
-            'Synced data directory (existing production data preserved without overwriting).',
+            'Synced data directory (existing production data preserved; dev/test user commands excluded).',
         );
     }
 
