@@ -19,6 +19,7 @@ import { PipelineData } from '../src/userCommands/types';
 import { SessionManager } from '../src/userCommands/sessionManager';
 import { convertLegacyTags } from '../src/userCommands/tagConverter';
 import userCommandsModule from '../src/modules/userCommands';
+import { getConfiguredRoleNames } from '../src/services/auditLogService';
 import { runTestCase } from './testHarness';
 
 async function runTests() {
@@ -1137,6 +1138,187 @@ you say "Default category"
             // Cleanup test command
             const realStorage = new UserCommandStorage();
             realStorage.deleteCommand('komaru');
+        },
+    );
+
+    await runTestCase(
+        'userCommands permissions: moderators can enable/disable, delete remains admin-only',
+        async () => {
+            let msgHandler: any = null;
+            const mockClient = {
+                user: { id: 'bot_test_client' },
+                on: (event: string, handler: any) => {
+                    if (event === 'messageCreate') {
+                        msgHandler = handler;
+                    }
+                },
+            };
+
+            await userCommandsModule.register(mockClient);
+
+            const enableSlash = commandRegistry.get('usercmd_enable');
+            const disableSlash = commandRegistry.get('usercmd_disable');
+            const deleteSlash = commandRegistry.get('delete');
+            assert.ok(enableSlash, 'usercmd_enable should be registered');
+            assert.ok(disableSlash, 'usercmd_disable should be registered');
+            assert.ok(deleteSlash, 'delete should be registered');
+            assert.ok(msgHandler, 'messageCreate listener should be registered');
+
+            const realStorage = new UserCommandStorage();
+            const testCmdName = 'mod_perm_test_cmd';
+            const rawDef = [
+                '@Komaru',
+                `name "${testCmdName}"`,
+                'meta enabled false',
+                'when someone says "!modpermtest"',
+                'you reply "ok"',
+            ].join('\n');
+            const parsed = parseUserCommand(rawDef, 'original_author_123');
+            assert.ok(parsed, 'test command should parse');
+            realStorage.saveCommand(parsed, rawDef);
+
+            const roles = getConfiguredRoleNames();
+            const modRoleKey = roles.moderator || 'Moderator';
+            const modMember = {
+                guild: { id: 'guild_1', channels: { cache: new Map() } },
+                roles: {
+                    cache: [{ id: modRoleKey, name: modRoleKey }],
+                },
+                permissions: { has: () => false },
+            };
+            const regularMember = {
+                guild: { id: 'guild_1', channels: { cache: new Map() } },
+                roles: { cache: [] },
+                permissions: { has: () => false },
+            };
+
+            try {
+                // 1. Regular user blocked from slash enable/disable
+                let replyText = '';
+                await enableSlash.handler({
+                    user: { id: 'user_normie' },
+                    client: mockClient,
+                    guild: { id: 'guild_1', channels: { cache: new Map() } },
+                    member: regularMember,
+                    memberPermissions: { has: () => false },
+                    options: { getString: () => testCmdName },
+                    reply: async (payload: any) => {
+                        replyText = payload.content;
+                    },
+                });
+                assert.ok(replyText.includes('Moderator or Admin permissions required'));
+
+                // 2. Moderator can enable via slash command
+                replyText = '';
+                await enableSlash.handler({
+                    user: { id: 'user_mod' },
+                    client: mockClient,
+                    guild: { id: 'guild_1', channels: { cache: new Map() } },
+                    member: modMember,
+                    memberPermissions: { has: () => false },
+                    options: { getString: () => testCmdName },
+                    reply: async (payload: any) => {
+                        replyText = payload.content;
+                    },
+                });
+                assert.ok(replyText.includes('has been approved and enabled'));
+                assert.strictEqual(realStorage.getCommand(testCmdName)?.metadata.enabled, true);
+
+                // 3. Moderator can disable via slash command
+                replyText = '';
+                await disableSlash.handler({
+                    user: { id: 'user_mod' },
+                    client: mockClient,
+                    guild: { id: 'guild_1', channels: { cache: new Map() } },
+                    member: modMember,
+                    memberPermissions: { has: () => false },
+                    options: { getString: () => testCmdName },
+                    reply: async (payload: any) => {
+                        replyText = payload.content;
+                    },
+                });
+                assert.ok(replyText.includes('has been disabled'));
+                assert.strictEqual(realStorage.getCommand(testCmdName)?.metadata.enabled, false);
+
+                // 4. Moderator can enable & disable via text commands
+                let textReply = '';
+                await msgHandler({
+                    author: { id: 'user_mod', bot: false },
+                    content: `!usercmd_enable ${testCmdName}`,
+                    guildId: 'guild_1',
+                    channelId: 'chan_1',
+                    guild: { id: 'guild_1', channels: { cache: new Map() } },
+                    member: modMember,
+                    reply: async (payload: any) => {
+                        textReply = typeof payload === 'string' ? payload : payload.content;
+                    },
+                });
+                assert.ok(textReply.includes('has been approved and enabled'));
+                assert.strictEqual(realStorage.getCommand(testCmdName)?.metadata.enabled, true);
+
+                textReply = '';
+                await msgHandler({
+                    author: { id: 'user_mod', bot: false },
+                    content: `!usercmd_disable ${testCmdName}`,
+                    guildId: 'guild_1',
+                    channelId: 'chan_1',
+                    guild: { id: 'guild_1', channels: { cache: new Map() } },
+                    member: modMember,
+                    reply: async (payload: any) => {
+                        textReply = typeof payload === 'string' ? payload : payload.content;
+                    },
+                });
+                assert.ok(textReply.includes('has been disabled'));
+                assert.strictEqual(realStorage.getCommand(testCmdName)?.metadata.enabled, false);
+
+                // 5. Moderator CANNOT delete another user's command (slash or text)
+                replyText = '';
+                await deleteSlash.handler({
+                    user: { id: 'user_mod' },
+                    client: mockClient,
+                    guild: { id: 'guild_1', channels: { cache: new Map() } },
+                    member: modMember,
+                    memberPermissions: { has: () => false },
+                    options: { getString: () => testCmdName },
+                    reply: async (payload: any) => {
+                        replyText = payload.content;
+                    },
+                });
+                assert.ok(replyText.includes('do not have permission to delete'));
+                assert.ok(realStorage.getCommand(testCmdName), 'command should still exist');
+
+                textReply = '';
+                await msgHandler({
+                    author: { id: 'user_mod', bot: false },
+                    content: `!delete ${testCmdName}`,
+                    guildId: 'guild_1',
+                    channelId: 'chan_1',
+                    guild: { id: 'guild_1', channels: { cache: new Map() } },
+                    member: modMember,
+                    reply: async (payload: any) => {
+                        textReply = typeof payload === 'string' ? payload : payload.content;
+                    },
+                });
+                assert.ok(textReply.includes('do not have permission to delete'));
+                assert.ok(realStorage.getCommand(testCmdName), 'command should still exist');
+
+                // 6. Administrator CAN delete another user's command
+                replyText = '';
+                await deleteSlash.handler({
+                    user: { id: 'user_admin' },
+                    client: mockClient,
+                    guild: { id: 'guild_1', channels: { cache: new Map() } },
+                    memberPermissions: { has: (p: string) => p === 'Administrator' },
+                    options: { getString: () => testCmdName },
+                    reply: async (payload: any) => {
+                        replyText = payload.content;
+                    },
+                });
+                assert.ok(replyText.includes('deleted successfully'));
+                assert.strictEqual(realStorage.getCommand(testCmdName), null);
+            } finally {
+                realStorage.deleteCommand(testCmdName);
+            }
         },
     );
 }

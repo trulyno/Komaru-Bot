@@ -8,7 +8,7 @@ import { TriggerPool } from '../userCommands/triggerPool';
 import { getHelpTopicEmbed } from '../userCommands/helpProvider';
 import { UserCommandTrigger } from '../userCommands/types';
 import { config } from '../config';
-import { sendAuditLog } from '../services/auditLogService';
+import { canModerate, sendAuditLog } from '../services/auditLogService';
 import { convertLegacyTags } from '../userCommands/tagConverter';
 
 const storage = new UserCommandStorage();
@@ -30,6 +30,19 @@ function isBotOwner(userId: string, client: any): boolean {
         return true;
     }
     return false;
+}
+
+function canToggleUserCommand(
+    member: any,
+    memberPermissions: any,
+    userId: string,
+    client: any,
+): boolean {
+    return (
+        canModerate(member) ||
+        Boolean(memberPermissions?.has?.('Administrator')) ||
+        isBotOwner(userId, client)
+    );
 }
 
 function extractUserIdFromMention(input: string): string {
@@ -977,15 +990,19 @@ const moduleDefinition: BotModule = {
 
         commandRegistry.register({
             name: 'usercmd_enable',
-            description: '[Admin] Enable or approve a user command',
+            description: '[Mod/Admin] Enable or approve a user command',
             options: [{ name: 'name', description: 'Command name', type: 3, required: true }],
             handler: async (interaction: any) => {
                 if (
-                    !interaction.memberPermissions?.has?.('Administrator') &&
-                    !isBotOwner(interaction.user.id, client)
+                    !canToggleUserCommand(
+                        interaction.member,
+                        interaction.memberPermissions,
+                        interaction.user.id,
+                        client,
+                    )
                 ) {
                     await interaction.reply({
-                        content: '❌ Admin permissions required.',
+                        content: '❌ Moderator or Admin permissions required.',
                         ephemeral: true,
                     });
                     return;
@@ -1035,15 +1052,19 @@ const moduleDefinition: BotModule = {
 
         commandRegistry.register({
             name: 'usercmd_disable',
-            description: '[Admin] Disable an active user command',
+            description: '[Mod/Admin] Disable an active user command',
             options: [{ name: 'name', description: 'Command name', type: 3, required: true }],
             handler: async (interaction: any) => {
                 if (
-                    !interaction.memberPermissions?.has?.('Administrator') &&
-                    !isBotOwner(interaction.user.id, client)
+                    !canToggleUserCommand(
+                        interaction.member,
+                        interaction.memberPermissions,
+                        interaction.user.id,
+                        client,
+                    )
                 ) {
                     await interaction.reply({
-                        content: '❌ Admin permissions required.',
+                        content: '❌ Moderator or Admin permissions required.',
                         ephemeral: true,
                     });
                     return;
@@ -1953,8 +1974,10 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
         }
         case 'usercmd_enable':
         case 'enable_cmd': {
-            if (!isAdmin && !owner) {
-                await message.reply('❌ Admin permissions required.');
+            if (
+                !canToggleUserCommand(message.member, message.member?.permissions, userId, client)
+            ) {
+                await message.reply('❌ Moderator or Admin permissions required.');
                 return true;
             }
             if (!arg1) return false;
@@ -1985,8 +2008,10 @@ async function handleTextCommands(message: any, client: any): Promise<boolean> {
         }
         case 'usercmd_disable':
         case 'disable_cmd': {
-            if (!isAdmin && !owner) {
-                await message.reply('❌ Admin permissions required.');
+            if (
+                !canToggleUserCommand(message.member, message.member?.permissions, userId, client)
+            ) {
+                await message.reply('❌ Moderator or Admin permissions required.');
                 return true;
             }
             if (!arg1) return false;
