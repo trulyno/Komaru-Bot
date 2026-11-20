@@ -11,6 +11,7 @@ import {
 import { UserCommandStorage } from './storage';
 import { ConfigStore } from './configStore';
 import {
+    ActionType,
     ActionValue,
     ComplexValue,
     EmbedData,
@@ -19,6 +20,17 @@ import {
     UserCommandAction,
     UserCommandJson,
 } from './types';
+
+interface ThoughtGroup {
+    texts: string[];
+    files: string[];
+}
+
+interface ExecutionState {
+    actionsRun: number;
+    maxActions: number;
+    thoughts: Map<string, ThoughtGroup>;
+}
 
 export class TriggerPool {
     private commands: Map<string, UserCommandJson> = new Map();
@@ -317,7 +329,11 @@ export class TriggerPool {
             resolveRoleName: (id: string) => resolveRoleName(id, message),
         };
 
-        const state = { actionsRun: 0, maxActions: 100 };
+        const state: ExecutionState = {
+            actionsRun: 0,
+            maxActions: 100,
+            thoughts: new Map<string, ThoughtGroup>(),
+        };
         await this.runActionSequence(cmd.actions, cmd, message, ctx, state);
     }
 
@@ -326,7 +342,7 @@ export class TriggerPool {
         cmd: UserCommandJson,
         message: any,
         ctx: EvaluationContext,
-        state: { actionsRun: number; maxActions: number } = { actionsRun: 0, maxActions: 100 },
+        state: ExecutionState = { actionsRun: 0, maxActions: 100, thoughts: new Map() },
     ): Promise<void> {
         for (const action of actions) {
             if (state.actionsRun >= state.maxActions) {
@@ -346,86 +362,42 @@ export class TriggerPool {
                     }
                     break;
                 }
-                case 'say': {
-                    let strContent = String(this.evaluateActionValue(action.value, ctx));
-                    strContent = await sanitizeMentions(strContent, message);
-                    if (strContent) {
-                        await message.channel.send({
-                            content: strContent,
-                            allowedMentions: { parse: [] }, // Never ping users
-                        });
+                case 'think': {
+                    const thoughtName = action.thoughtName || '';
+                    if (!state.thoughts.has(thoughtName)) {
+                        state.thoughts.set(thoughtName, { texts: [], files: [] });
                     }
-                    break;
-                }
-                case 'reply': {
-                    let strContent = String(this.evaluateActionValue(action.value, ctx));
-                    strContent = await sanitizeMentions(strContent, message);
-                    if (strContent) {
-                        await message.reply({
-                            content: strContent,
-                            allowedMentions: { parse: [] }, // Never ping users
-                        });
-                    }
-                    break;
-                }
-                case 'whisper': {
-                    let strContent = String(this.evaluateActionValue(action.value, ctx));
-                    strContent = await sanitizeMentions(strContent, message);
-                    if (strContent) {
-                        const isInteraction =
-                            typeof message.isChatInputCommand === 'function' ||
-                            Boolean(message.interaction);
-                        if (isInteraction) {
-                            try {
-                                if (message.replied || message.deferred) {
-                                    await message.followUp({
-                                        content: strContent,
-                                        ephemeral: true,
-                                        allowedMentions: { parse: [] },
-                                    });
-                                } else {
-                                    await message.reply({
-                                        content: strContent,
-                                        ephemeral: true,
-                                        allowedMentions: { parse: [] },
-                                    });
-                                }
-                            } catch (err: any) {
-                                logger.error(
-                                    `Could not send ephemeral whisper interaction: ${err}`,
-                                );
-                            }
-                        } else {
-                            try {
-                                await message.author.send({
-                                    content: strContent,
-                                    allowedMentions: { parse: [] },
-                                });
-                            } catch (dmError: any) {
-                                logger.warn(
-                                    `Could not send DM whisper to user ${message.author?.id}: ${dmError}`,
-                                );
-                                await message.channel.send({
-                                    content: `*(Could not whisper to ${ctx.userMention}: DMs are disabled or blocked in Discord privacy settings)*`,
-                                    allowedMentions: { parse: [] },
-                                });
-                            }
+                    const group = state.thoughts.get(thoughtName)!;
+                    const evaluated = this.evaluateActionValue(action.value, ctx);
+                    const strVal = String(evaluated);
+                    const trimmedRef = strVal.trim();
+                    const mediaItem = cmd.media[trimmedRef];
+                    if (mediaItem && mediaItem.path) {
+                        group.files.push(mediaItem.path);
+                    } else if (/^&\d+$/.test(trimmedRef)) {
+                        logger.warn(
+                            `Media file reference "${trimmedRef}" not found in command "${cmd.metadata.name}"`,
+                        );
+                    } else {
+                        const sanitized = await sanitizeMentions(strVal, message);
+                        if (sanitized) {
+                            group.texts.push(sanitized);
                         }
                     }
                     break;
                 }
+                case 'say':
+                case 'reply':
+                case 'whisper':
                 case 'send': {
-                    const fileRef = String(this.evaluateActionValue(action.value, ctx)).trim();
-                    const mediaItem = cmd.media[fileRef];
-                    if (mediaItem && mediaItem.path) {
-                        await message.channel.send({
-                            files: [mediaItem.path],
-                        });
-                    } else {
-                        logger.warn(
-                            `Media file reference "${fileRef}" not found in command "${cmd.metadata.name}"`,
-                        );
-                    }
+                    const { content, files } = await this.resolveOutputPayload(
+                        action,
+                        cmd,
+                        message,
+                        ctx,
+                        state,
+                    );
+                    await this.dispatchOutput(action.type, content, files, message, ctx);
                     break;
                 }
                 case 'embed': {
@@ -510,6 +482,120 @@ export class TriggerPool {
                         executePipeline(pipeData, ctx);
                     }
                     break;
+                }
+            }
+        }
+    }
+
+    private async resolveOutputPayload(
+        action: UserCommandAction,
+        cmd: UserCommandJson,
+        message: any,
+        ctx: EvaluationContext,
+        state: ExecutionState,
+    ): Promise<{ content: string; files: string[] }> {
+        if (
+            typeof action.value === 'object' &&
+            action.value !== null &&
+            (action.value as ComplexValue).type === 'thought'
+        ) {
+            const thoughtName = (action.value as ComplexValue).thoughtName || '';
+            const group = state.thoughts.get(thoughtName);
+            return {
+                content: group ? group.texts.join('\n') : '',
+                files: group ? [...group.files] : [],
+            };
+        }
+
+        if (action.files && action.files.length > 0) {
+            const files: string[] = [];
+            for (const ref of action.files) {
+                const fileRef = String(this.evaluateActionValue(ref, ctx)).trim();
+                const mediaItem = cmd.media[fileRef];
+                if (mediaItem && mediaItem.path) {
+                    files.push(mediaItem.path);
+                } else {
+                    logger.warn(
+                        `Media file reference "${fileRef}" not found in command "${cmd.metadata.name}"`,
+                    );
+                }
+            }
+
+            let content = '';
+            if (action.value !== '' && action.value !== undefined) {
+                const rawContent = String(this.evaluateActionValue(action.value, ctx));
+                content = await sanitizeMentions(rawContent, message);
+            }
+            return { content, files };
+        }
+
+        if (action.type === 'send') {
+            const fileRef = String(this.evaluateActionValue(action.value, ctx)).trim();
+            const mediaItem = cmd.media[fileRef];
+            if (mediaItem && mediaItem.path) {
+                return { content: '', files: [mediaItem.path] };
+            }
+            logger.warn(
+                `Media file reference "${fileRef}" not found in command "${cmd.metadata.name}"`,
+            );
+            return { content: '', files: [] };
+        }
+
+        const rawContent = String(this.evaluateActionValue(action.value, ctx));
+        const content = await sanitizeMentions(rawContent, message);
+        return { content, files: [] };
+    }
+
+    private async dispatchOutput(
+        actionType: ActionType,
+        content: string,
+        files: string[],
+        message: any,
+        ctx: EvaluationContext,
+    ): Promise<void> {
+        if (!content && files.length === 0) {
+            return;
+        }
+
+        const payload: any = { allowedMentions: { parse: [] } };
+        if (content) payload.content = content;
+        if (files.length > 0) payload.files = files;
+
+        if (actionType === 'say' || actionType === 'send') {
+            await message.channel.send(payload);
+            return;
+        }
+
+        if (actionType === 'reply') {
+            await message.reply(payload);
+            return;
+        }
+
+        if (actionType === 'whisper') {
+            const isInteraction =
+                typeof message.isChatInputCommand === 'function' || Boolean(message.interaction);
+            if (isInteraction) {
+                try {
+                    const ephemeralPayload = { ...payload, ephemeral: true };
+                    if (message.replied || message.deferred) {
+                        await message.followUp(ephemeralPayload);
+                    } else {
+                        await message.reply(ephemeralPayload);
+                    }
+                } catch (err: any) {
+                    logger.error(`Could not send ephemeral whisper interaction: ${err}`);
+                }
+            } else {
+                try {
+                    await message.author.send(payload);
+                } catch (dmError: any) {
+                    logger.warn(
+                        `Could not send DM whisper to user ${message.author?.id}: ${dmError}`,
+                    );
+                    await message.channel.send({
+                        content: `*(Could not whisper to ${ctx.userMention}: DMs are disabled or blocked in Discord privacy settings)*`,
+                        allowedMentions: { parse: [] },
+                    });
                 }
             }
         }

@@ -33,14 +33,15 @@ export interface UserCommandTrigger {
 }
 
 export type ActionType =
-    'say' | 'reply' | 'whisper' | 'send' | 'memorize' | 'embed' | 'ponder' | 'pipeline';
+    'say' | 'reply' | 'whisper' | 'send' | 'think' | 'memorize' | 'embed' | 'ponder' | 'pipeline';
 
 export interface ComplexValue {
-    type: 'choice' | 'random' | 'calc' | 'remember' | 'literal';
+    type: 'choice' | 'random' | 'calc' | 'remember' | 'literal' | 'thought';
     value?: any;
     min?: number;
     max?: number;
     slot?: number;
+    thoughtName?: string;
 }
 
 export type ActionValue = string | ComplexValue | EmbedData | PonderData | PipelineData;
@@ -102,6 +103,8 @@ export interface UserCommandAction {
     type: ActionType;
     value: ActionValue;
     targetSlot?: number;
+    thoughtName?: string;
+    files?: string[];
 }
 
 export interface MediaItem {

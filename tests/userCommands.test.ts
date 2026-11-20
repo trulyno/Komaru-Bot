@@ -1321,6 +1321,177 @@ you say "Default category"
             }
         },
     );
+
+    await runTestCase('thoughts: message and media groups (default and named)', async () => {
+        const testDir = path.resolve(__dirname, 'temp_thoughts_test');
+        if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+        fs.mkdirSync(testDir, { recursive: true });
+
+        try {
+            const storage = new UserCommandStorage(testDir);
+            const rawThought = `
+name "thoughtTest"
+when someone says "!think"
+you think "this message is getting added to the group"
+you think "another message in the group"
+you think "foo as bar"
+you think &1
+you reply with your thought
+`;
+            const parsed = parseUserCommand(rawThought, 'user_1', [
+                { filename: 'img1.png', path: '/tmp/img1.png' },
+            ]);
+            assert.strictEqual(parsed.actions.length, 5);
+            assert.strictEqual(parsed.actions[0].type, 'think');
+            assert.strictEqual(parsed.actions[0].thoughtName, undefined);
+            assert.strictEqual(parsed.actions[2].type, 'think');
+            assert.strictEqual(parsed.actions[2].value, 'foo as bar');
+            assert.strictEqual(parsed.actions[2].thoughtName, undefined);
+            assert.strictEqual(parsed.actions[4].type, 'reply');
+            assert.deepStrictEqual(parsed.actions[4].value, { type: 'thought', thoughtName: '' });
+
+            storage.saveCommand(parsed, rawThought);
+
+            const rawNamed = `
+name "namedThoughtTest"
+when someone says "!namedthink"
+you think "foo" as foo
+you think "bar" as bar
+you think &1 as foo
+you reply with your foo thought
+you say with your bar thought
+`;
+            const parsedNamed = parseUserCommand(rawNamed, 'user_1', [
+                { filename: 'img1.png', path: '/tmp/img1.png' },
+            ]);
+            assert.strictEqual(parsedNamed.actions[0].thoughtName, 'foo');
+            assert.strictEqual(parsedNamed.actions[1].thoughtName, 'bar');
+            assert.strictEqual(parsedNamed.actions[2].thoughtName, 'foo');
+            assert.deepStrictEqual(parsedNamed.actions[3].value, {
+                type: 'thought',
+                thoughtName: 'foo',
+            });
+            assert.deepStrictEqual(parsedNamed.actions[4].value, {
+                type: 'thought',
+                thoughtName: 'bar',
+            });
+            storage.saveCommand(parsedNamed, rawNamed);
+
+            const triggerPool = new TriggerPool(storage);
+            triggerPool.loadFromStorage();
+
+            const replies: any[] = [];
+            const sends: any[] = [];
+            const mockMsg = (content: string) => ({
+                content,
+                author: { id: 'user_1', bot: false, username: 'Tester' },
+                member: { displayName: 'Tester' },
+                reply: async (payload: any) => {
+                    replies.push(payload);
+                },
+                channel: {
+                    id: 'chan_1',
+                    name: 'general',
+                    send: async (payload: any) => {
+                        sends.push(payload);
+                    },
+                },
+                guild: {
+                    name: 'TestGuild',
+                    members: { cache: new Map() },
+                    roles: { cache: new Map() },
+                },
+            });
+
+            const handled1 = await triggerPool.handleMessage(mockMsg('!think'));
+            assert.strictEqual(handled1, true);
+            assert.strictEqual(replies.length, 1);
+            assert.strictEqual(
+                replies[0].content,
+                'this message is getting added to the group\nanother message in the group\nfoo as bar',
+            );
+            assert.deepStrictEqual(replies[0].files, ['/tmp/img1.png']);
+
+            replies.length = 0;
+            sends.length = 0;
+            const handled2 = await triggerPool.handleMessage(mockMsg('!namedthink'));
+            assert.strictEqual(handled2, true);
+            assert.strictEqual(replies.length, 1);
+            assert.strictEqual(replies[0].content, 'foo');
+            assert.deepStrictEqual(replies[0].files, ['/tmp/img1.png']);
+            assert.strictEqual(sends.length, 1);
+            assert.strictEqual(sends[0].content, 'bar');
+            assert.strictEqual(sends[0].files, undefined);
+        } finally {
+            fs.rmSync(testDir, { recursive: true, force: true });
+        }
+    });
+
+    await runTestCase('media group syntax (&1 &2 &3) and quick tag single message', async () => {
+        const testDir = path.resolve(__dirname, 'temp_mediagroup_test');
+        if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+        fs.mkdirSync(testDir, { recursive: true });
+
+        try {
+            const storage = new UserCommandStorage(testDir);
+            const media = [
+                { filename: 'a.png', path: '/tmp/a.png' },
+                { filename: 'b.png', path: '/tmp/b.png' },
+                { filename: 'c.png', path: '/tmp/c.png' },
+            ];
+
+            const rawMediaGroup = `
+name "mediaGroupTest"
+when someone says "!mediagroup"
+you reply (&1 &2 &3)
+`;
+            const parsedGroup = parseUserCommand(rawMediaGroup, 'user_1', media);
+            assert.strictEqual(parsedGroup.actions.length, 1);
+            assert.strictEqual(parsedGroup.actions[0].type, 'reply');
+            assert.deepStrictEqual(parsedGroup.actions[0].files, ['&1', '&2', '&3']);
+            storage.saveCommand(parsedGroup, rawMediaGroup);
+
+            const rawQtMedia = `qt "!qtmedia"\nLine one\nLine two`;
+            const parsedQt = parseUserCommand(rawQtMedia, 'user_1', media.slice(0, 2));
+            assert.strictEqual(parsedQt.actions.length, 1);
+            assert.strictEqual(parsedQt.actions[0].type, 'reply');
+            assert.strictEqual(parsedQt.actions[0].value, 'Line one\nLine two');
+            assert.deepStrictEqual(parsedQt.actions[0].files, ['&1', '&2']);
+            storage.saveCommand(parsedQt, rawQtMedia);
+
+            const triggerPool = new TriggerPool(storage);
+            triggerPool.loadFromStorage();
+
+            const replies: any[] = [];
+            const mockMsg = (content: string) => ({
+                content,
+                author: { id: 'user_1', bot: false, username: 'Tester' },
+                member: { displayName: 'Tester' },
+                reply: async (payload: any) => {
+                    replies.push(payload);
+                },
+                channel: { id: 'chan_1', name: 'general', send: async () => {} },
+                guild: {
+                    name: 'TestGuild',
+                    members: { cache: new Map() },
+                    roles: { cache: new Map() },
+                },
+            });
+
+            await triggerPool.handleMessage(mockMsg('!mediagroup'));
+            assert.strictEqual(replies.length, 1);
+            assert.strictEqual(replies[0].content, undefined);
+            assert.deepStrictEqual(replies[0].files, ['/tmp/a.png', '/tmp/b.png', '/tmp/c.png']);
+
+            replies.length = 0;
+            await triggerPool.handleMessage(mockMsg('!qtmedia'));
+            assert.strictEqual(replies.length, 1);
+            assert.strictEqual(replies[0].content, 'Line one\nLine two');
+            assert.deepStrictEqual(replies[0].files, ['/tmp/a.png', '/tmp/b.png']);
+        } finally {
+            fs.rmSync(testDir, { recursive: true, force: true });
+        }
+    });
 }
 
 runTests().catch((err) => {

@@ -1,4 +1,5 @@
 import {
+    ActionType,
     ActionValue,
     ComplexValue,
     EmbedData,
@@ -310,21 +311,18 @@ function parseQuickCommand(
     const bodyText = bodyLines.join('\n').trim();
 
     const actions: UserCommandAction[] = [];
-    if (bodyText) {
-        actions.push({
-            type: 'reply',
-            value: bodyText,
-        });
-    }
+    const fileRefs =
+        mediaFiles && mediaFiles.length > 0 ? mediaFiles.map((_, idx) => `&${idx + 1}`) : undefined;
 
-    // Attach media actions if files are attached
-    if (mediaFiles && mediaFiles.length > 0) {
-        mediaFiles.forEach((_, idx) => {
-            actions.push({
-                type: 'send',
-                value: `&${idx + 1}`,
-            });
-        });
+    if (bodyText || fileRefs) {
+        const action: UserCommandAction = {
+            type: 'reply',
+            value: bodyText || '',
+        };
+        if (fileRefs) {
+            action.files = fileRefs;
+        }
+        actions.push(action);
     }
 
     const finalName = `qt-${Date.now()}`;
@@ -793,19 +791,103 @@ function parseActionLine(
         };
     }
 
+    const thinkMatch = line.match(/^(you\s+)?think\s+([\s\S]+)$/i);
+    if (thinkMatch) {
+        const { valueExpr, thoughtName } = extractThoughtSuffix(thinkMatch[2].trim());
+        const value = parseValueExpr(valueExpr);
+        const action: UserCommandAction = {
+            type: 'think',
+            value,
+        };
+        if (thoughtName) {
+            action.thoughtName = thoughtName;
+        }
+        return action;
+    }
+
     const actMatch = line.match(/^(you\s+)?(say|reply|whisper|wisper|send)\s+([\s\S]+)$/i);
     if (actMatch) {
         let actionType = actMatch[2].toLowerCase();
         if (actionType === 'wisper') actionType = 'whisper';
         const valExpr = actMatch[3].trim();
+
+        const thoughtMatch = valExpr.match(/^with\s+your\s+(?:([a-zA-Z0-9_-]+)\s+)?thought$/i);
+        if (thoughtMatch) {
+            return {
+                type: actionType as ActionType,
+                value: {
+                    type: 'thought',
+                    thoughtName: thoughtMatch[1] || '',
+                },
+            };
+        }
+
+        const mediaGroupMatch = valExpr.match(/^\(([^)]+)\)$/);
+        if (mediaGroupMatch) {
+            const files = mediaGroupMatch[1]
+                .split(/[\s,]+/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+            return {
+                type: actionType as ActionType,
+                value: '',
+                files,
+            };
+        }
+
         const value = parseValueExpr(valExpr);
         return {
-            type: actionType as any,
+            type: actionType as ActionType,
             value,
         };
     }
 
     return null;
+}
+
+function extractThoughtSuffix(expr: string): { valueExpr: string; thoughtName: string } {
+    let inTripleQuotes = false;
+    let inQuotes = false;
+    let quoteChar = '';
+    let braceDepth = 0;
+
+    for (let i = 0; i < expr.length; i++) {
+        if (!inQuotes && expr.substring(i, i + 3) === '"""') {
+            inTripleQuotes = !inTripleQuotes;
+            i += 2;
+            continue;
+        }
+        if (inTripleQuotes) continue;
+
+        const char = expr[i];
+        if ((char === '"' || char === "'") && (i === 0 || expr[i - 1] !== '\\')) {
+            if (!inQuotes) {
+                inQuotes = true;
+                quoteChar = char;
+            } else if (quoteChar === char) {
+                inQuotes = false;
+            }
+            continue;
+        }
+        if (inQuotes) continue;
+
+        if (char === '{') {
+            braceDepth++;
+        } else if (char === '}' && braceDepth > 0) {
+            braceDepth--;
+        } else if (braceDepth === 0) {
+            const rest = expr.slice(i);
+            const suffixMatch = rest.match(/^\s+as\s+([a-zA-Z0-9_-]+)\s*$/i);
+            if (suffixMatch) {
+                return {
+                    valueExpr: expr.slice(0, i).trim(),
+                    thoughtName: suffixMatch[1],
+                };
+            }
+        }
+    }
+
+    return { valueExpr: expr, thoughtName: '' };
 }
 
 function resolveSlotRef(ref: string, aliases: Record<string, number>): number {
