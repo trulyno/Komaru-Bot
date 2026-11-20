@@ -1,3 +1,17 @@
+export const DEFAULT_GLOBAL_PERSISTENCE_LIMIT = 5;
+export const DEFAULT_PER_USER_PERSISTENCE_LIMIT = 25;
+
+export interface PersistenceLimits {
+    global?: number;
+    perUser?: number;
+}
+
+export interface CommandPersistenceData {
+    global: Record<string, string | number>;
+    users: Record<string, Record<string, string | number>>;
+    userOrder: string[];
+}
+
 export interface UserCommandMetadata {
     author: string;
     storage_used: number;
@@ -11,6 +25,7 @@ export interface UserCommandMetadata {
     channels?: string[];
     enabled?: boolean;
     lastUsed?: Record<string, number>; // timestamp per user or global
+    persistenceLimits?: PersistenceLimits;
 }
 
 export interface UserCommandCategory {
@@ -33,10 +48,19 @@ export interface UserCommandTrigger {
 }
 
 export type ActionType =
-    'say' | 'reply' | 'whisper' | 'send' | 'think' | 'memorize' | 'embed' | 'ponder' | 'pipeline';
+    | 'say'
+    | 'reply'
+    | 'whisper'
+    | 'send'
+    | 'think'
+    | 'hide'
+    | 'memorize'
+    | 'embed'
+    | 'ponder'
+    | 'pipeline';
 
 export interface ComplexValue {
-    type: 'choice' | 'random' | 'calc' | 'remember' | 'literal' | 'thought';
+    type: 'choice' | 'random' | 'calc' | 'remember' | 'literal' | 'thought' | 'expr';
     value?: any;
     min?: number;
     max?: number;
@@ -105,6 +129,9 @@ export interface UserCommandAction {
     targetSlot?: number;
     thoughtName?: string;
     files?: string[];
+    hideScope?: 'global' | 'user';
+    hideKey?: string;
+    initialValue?: string | number;
 }
 
 export interface MediaItem {

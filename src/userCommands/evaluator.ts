@@ -14,14 +14,24 @@ export interface EvaluationContext {
     varAliases?: Record<string, number>;
     resolveUserDisplayName?: (userId: string) => string;
     resolveRoleName?: (roleId: string) => string;
+    uncoverValue?: (key: string, scope: 'global' | 'user') => string | number | undefined;
 }
 
 export function evaluateCalc(
     expression: string,
     variables: Array<string | number> = [],
     varAliases?: Record<string, number>,
+    uncoverValue?: (key: string, scope: 'global' | 'user') => string | number | undefined,
 ): number {
     let sanitized = expression.trim();
+
+    sanitized = sanitized.replace(
+        /(?:you\s+)?uncover\s+(my\s+)?\[([a-zA-Z0-9_-]+)\]/gi,
+        (_, my, key) => {
+            const val = uncoverValue?.(key, my ? 'user' : 'global');
+            return val !== undefined ? String(val) : '0';
+        },
+    );
 
     sanitized = sanitized.replace(/remember\s*\[([a-zA-Z0-9_-]+)\]/gi, (_, ref) => {
         const slot = resolveSlot(ref, varAliases);
@@ -252,10 +262,19 @@ export function interpolateString(template: string, ctx: EvaluationContext): str
         return val !== undefined ? String(val) : '';
     });
 
+    // Replace {you uncover [key]} and {you uncover my [key]}
+    result = result.replace(
+        /\{(?:you\s+)?uncover\s+(my\s+)?\[([a-zA-Z0-9_-]+)\]\}/gi,
+        (_, my, key) => {
+            const val = ctx.uncoverValue?.(key, my ? 'user' : 'global');
+            return val !== undefined ? String(val) : '';
+        },
+    );
+
     // Replace {calc {expr}}
     result = result.replace(/\{calc\s*\{([^}]+)\}\}/gi, (_, expr) => {
         try {
-            return String(evaluateCalc(expr, ctx.variables, ctx.varAliases));
+            return String(evaluateCalc(expr, ctx.variables, ctx.varAliases, ctx.uncoverValue));
         } catch {
             return '0';
         }
@@ -303,6 +322,29 @@ export function interpolateString(template: string, ctx: EvaluationContext): str
     return result;
 }
 
+export function evaluateExpression(expr: string, ctx: EvaluationContext): string | number {
+    const trimmed = expr.trim();
+    const hasUncover = /(?:you\s+)?uncover\s+(?:my\s+)?\[[a-zA-Z0-9_-]+\]/i.test(trimmed);
+    const hasMath = /[+\-*/%]/.test(trimmed);
+
+    if (hasUncover || hasMath) {
+        // Check if it's a single uncover reference without math operators
+        const singleUncover = trimmed.match(/^(?:you\s+)?uncover\s+(my\s+)?\[([a-zA-Z0-9_-]+)\]$/i);
+        if (singleUncover) {
+            const val = ctx.uncoverValue?.(singleUncover[2], singleUncover[1] ? 'user' : 'global');
+            return val !== undefined ? val : '';
+        }
+
+        try {
+            return evaluateCalc(trimmed, ctx.variables, ctx.varAliases, ctx.uncoverValue);
+        } catch {
+            // Fall through to string interpolation
+        }
+    }
+
+    return interpolateString(`{${trimmed}}`, ctx);
+}
+
 // -------------------------------------------------------------
 // Boolean Expression Evaluator for `ponder` and `filter`
 // -------------------------------------------------------------
@@ -327,6 +369,15 @@ export function evaluateBooleanExpr(
             ctx.matchGroups && ctx.matchGroups[idx] !== undefined ? ctx.matchGroups[idx] : '';
         return `"${val}"`;
     });
+
+    // Replace bare or curly you uncover [key] / you uncover my [key]
+    evalStr = evalStr.replace(
+        /\{?(?:you\s+)?uncover\s+(my\s+)?\[([a-zA-Z0-9_-]+)\]\}?/gi,
+        (_, my, key) => {
+            const val = ctx.uncoverValue?.(key, my ? 'user' : 'global');
+            return `"${val !== undefined ? String(val) : ''}"`;
+        },
+    );
 
     evalStr = interpolateString(evalStr, ctx);
     evalStr = stripOuterParens(evalStr);

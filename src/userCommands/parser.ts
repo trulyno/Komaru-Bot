@@ -805,6 +805,29 @@ function parseActionLine(
         return action;
     }
 
+    const hideMatch = line.match(/^(you\s+)?hide\s+(my\s+)?\[([a-zA-Z0-9_-]+)\]\s+([\s\S]+)$/i);
+    if (hideMatch) {
+        const hideScope: 'global' | 'user' = hideMatch[2] ? 'user' : 'global';
+        const hideKey = hideMatch[3];
+        const parsedHide = extractHideInitialValue(hideMatch[4].trim());
+        if (parsedHide) {
+            const value = parseValueExpr(parsedHide.valueExpr);
+            const initialParsed = parseValueExpr(parsedHide.initialRaw);
+            const initialValue =
+                typeof initialParsed === 'string' || typeof initialParsed === 'number'
+                    ? initialParsed
+                    : parsedHide.initialRaw;
+            return {
+                type: 'hide',
+                value,
+                hideScope,
+                hideKey,
+                initialValue,
+            };
+        }
+        return null;
+    }
+
     const actMatch = line.match(/^(you\s+)?(say|reply|whisper|wisper|send)\s+([\s\S]+)$/i);
     if (actMatch) {
         let actionType = actMatch[2].toLowerCase();
@@ -943,5 +966,65 @@ function parseValueExpr(expr: string): ActionValue {
         return trimmed.slice(1, -1);
     }
 
+    if (trimmed.startsWith('{') && trimmed.endsWith('}') && trimmed.length >= 2) {
+        return {
+            type: 'expr',
+            value: trimmed.slice(1, -1).trim(),
+        };
+    }
+
     return trimmed;
+}
+
+function extractHideInitialValue(rest: string): { valueExpr: string; initialRaw: string } | null {
+    if (!rest.endsWith(']')) {
+        return null;
+    }
+
+    let inTripleQuotes = false;
+    let inQuotes = false;
+    let quoteChar = '';
+    let braceDepth = 0;
+    let lastTopLevelOpenBracket = -1;
+
+    for (let i = 0; i < rest.length; i++) {
+        if (!inQuotes && rest.substring(i, i + 3) === '"""') {
+            inTripleQuotes = !inTripleQuotes;
+            i += 2;
+            continue;
+        }
+        if (inTripleQuotes) continue;
+
+        const char = rest[i];
+        if ((char === '"' || char === "'") && (i === 0 || rest[i - 1] !== '\\')) {
+            if (!inQuotes) {
+                inQuotes = true;
+                quoteChar = char;
+            } else if (quoteChar === char) {
+                inQuotes = false;
+            }
+            continue;
+        }
+        if (inQuotes) continue;
+
+        if (char === '{') {
+            braceDepth++;
+        } else if (char === '}' && braceDepth > 0) {
+            braceDepth--;
+        } else if (braceDepth === 0 && char === '[') {
+            lastTopLevelOpenBracket = i;
+        }
+    }
+
+    if (lastTopLevelOpenBracket === -1) {
+        return null;
+    }
+
+    const valueExpr = rest.slice(0, lastTopLevelOpenBracket).trim();
+    const initialRaw = rest.slice(lastTopLevelOpenBracket + 1, -1).trim();
+    if (!valueExpr) {
+        return null;
+    }
+
+    return { valueExpr, initialRaw };
 }

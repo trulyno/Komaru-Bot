@@ -6,7 +6,11 @@ import { SessionManager } from '../userCommands/sessionManager';
 import { UserCommandStorage } from '../userCommands/storage';
 import { TriggerPool } from '../userCommands/triggerPool';
 import { getHelpTopicEmbed } from '../userCommands/helpProvider';
-import { UserCommandTrigger } from '../userCommands/types';
+import {
+    DEFAULT_GLOBAL_PERSISTENCE_LIMIT,
+    DEFAULT_PER_USER_PERSISTENCE_LIMIT,
+    UserCommandTrigger,
+} from '../userCommands/types';
 import { config } from '../config';
 import { canModerate, sendAuditLog } from '../services/auditLogService';
 import { convertLegacyTags } from '../userCommands/tagConverter';
@@ -1319,6 +1323,119 @@ const moduleDefinition: BotModule = {
                     const allowed = cfg.allowedCategories || ['* (All categories allowed)'];
                     await interaction.reply({
                         content: `Allowed command categories for <#${targetChannel.id}>: **${allowed.join(', ')}**.`,
+                        ephemeral: true,
+                    });
+                }
+            },
+        });
+
+        commandRegistry.register({
+            name: 'usercmd_persistence_limits',
+            description: '[Admin] View or update per-command data persistence limits',
+            options: [
+                { name: 'name', description: 'Command name', type: 3, required: true },
+                {
+                    name: 'global_limit',
+                    description: 'Max global stores (default 5)',
+                    type: 4,
+                    required: false,
+                },
+                {
+                    name: 'user_limit',
+                    description: 'Max per-user entries (default 25)',
+                    type: 4,
+                    required: false,
+                },
+            ],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const name = interaction.options?.getString?.('name');
+                const globalLimit = interaction.options?.getInteger?.('global_limit');
+                const userLimit = interaction.options?.getInteger?.('user_limit');
+
+                if (!name) {
+                    await interaction.reply({
+                        content:
+                            'Usage: /usercmd_persistence_limits <name> [global_limit] [user_limit]',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const existing = storage.getCommand(name);
+                if (!existing) {
+                    await interaction.reply({
+                        content: `Command **${name}** not found.`,
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (
+                    (globalLimit === null || globalLimit === undefined) &&
+                    (userLimit === null || userLimit === undefined)
+                ) {
+                    const currentGlobal =
+                        existing.metadata.persistenceLimits?.global ??
+                        DEFAULT_GLOBAL_PERSISTENCE_LIMIT;
+                    const currentUser =
+                        existing.metadata.persistenceLimits?.perUser ??
+                        DEFAULT_PER_USER_PERSISTENCE_LIMIT;
+                    await interaction.reply({
+                        content: `Persistence limits for **${existing.metadata.name}**: global = **${currentGlobal}** stores, per-user = **${currentUser}** users.`,
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const updates: { global?: number; perUser?: number } = {};
+                if (globalLimit !== null && globalLimit !== undefined) {
+                    if (globalLimit < 1) {
+                        await interaction.reply({
+                            content: 'global_limit must be at least 1.',
+                            ephemeral: true,
+                        });
+                        return;
+                    }
+                    updates.global = globalLimit;
+                }
+                if (userLimit !== null && userLimit !== undefined) {
+                    if (userLimit < 1) {
+                        await interaction.reply({
+                            content: 'user_limit must be at least 1.',
+                            ephemeral: true,
+                        });
+                        return;
+                    }
+                    updates.perUser = userLimit;
+                }
+
+                const updated = storage.updatePersistenceLimits(existing.metadata.name, updates);
+                if (updated) {
+                    triggerPool.registerCommand(updated);
+                    const finalGlobal =
+                        updated.metadata.persistenceLimits?.global ??
+                        DEFAULT_GLOBAL_PERSISTENCE_LIMIT;
+                    const finalUser =
+                        updated.metadata.persistenceLimits?.perUser ??
+                        DEFAULT_PER_USER_PERSISTENCE_LIMIT;
+                    await interaction.reply({
+                        content: `Updated persistence limits for **${updated.metadata.name}**: global = **${finalGlobal}** stores, per-user = **${finalUser}** users.`,
+                        ephemeral: true,
+                    });
+                } else {
+                    await interaction.reply({
+                        content: `Failed to update persistence limits for **${name}**.`,
                         ephemeral: true,
                     });
                 }

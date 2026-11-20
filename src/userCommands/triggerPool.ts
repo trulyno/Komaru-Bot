@@ -3,6 +3,7 @@ import {
     evaluateBooleanExpr,
     evaluateCalc,
     evaluateChoice,
+    evaluateExpression,
     evaluateRandom,
     EvaluationContext,
     executePipeline,
@@ -13,7 +14,10 @@ import { ConfigStore } from './configStore';
 import {
     ActionType,
     ActionValue,
+    CommandPersistenceData,
     ComplexValue,
+    DEFAULT_GLOBAL_PERSISTENCE_LIMIT,
+    DEFAULT_PER_USER_PERSISTENCE_LIMIT,
     EmbedData,
     PipelineData,
     PonderData,
@@ -30,6 +34,12 @@ interface ExecutionState {
     actionsRun: number;
     maxActions: number;
     thoughts: Map<string, ThoughtGroup>;
+    persistence?: CommandPersistenceData;
+    markPersistenceDirty?: () => void;
+    setPendingHideInitial?: (
+        pending:
+            { key: string; scope: 'global' | 'user'; initialValue: string | number } | undefined,
+    ) => void;
 }
 
 export class TriggerPool {
@@ -313,6 +323,11 @@ export class TriggerPool {
             message.author?.tag ||
             'User';
 
+        const persistence = this.storage.loadPersistence(cmd.metadata.name);
+        let persistenceDirty = false;
+        let pendingHideInitial:
+            { key: string; scope: 'global' | 'user'; initialValue: string | number } | undefined;
+
         const ctx: EvaluationContext = {
             userMention: userDisplayName, // Non-pinging nickname / display name
             username: message.author?.username || message.author?.tag || 'User',
@@ -327,14 +342,47 @@ export class TriggerPool {
             varAliases: aliases,
             resolveUserDisplayName: (id: string) => resolveUserDisplayNameSync(id, message),
             resolveRoleName: (id: string) => resolveRoleName(id, message),
+            uncoverValue: (key: string, scope: 'global' | 'user') => {
+                if (scope === 'global') {
+                    if (key in persistence.global) {
+                        return persistence.global[key];
+                    }
+                } else {
+                    const userStore = persistence.users[ctx.userId];
+                    if (userStore && key in userStore) {
+                        return userStore[key];
+                    }
+                }
+                if (
+                    pendingHideInitial &&
+                    pendingHideInitial.key === key &&
+                    pendingHideInitial.scope === scope
+                ) {
+                    return pendingHideInitial.initialValue;
+                }
+                return undefined;
+            },
         };
 
         const state: ExecutionState = {
             actionsRun: 0,
             maxActions: 100,
             thoughts: new Map<string, ThoughtGroup>(),
+            persistence,
+            markPersistenceDirty: () => {
+                persistenceDirty = true;
+            },
+            setPendingHideInitial: (pending) => {
+                pendingHideInitial = pending;
+            },
         };
-        await this.runActionSequence(cmd.actions, cmd, message, ctx, state);
+        try {
+            await this.runActionSequence(cmd.actions, cmd, message, ctx, state);
+        } finally {
+            if (persistenceDirty) {
+                this.storage.savePersistence(cmd.metadata.name, persistence);
+            }
+        }
     }
 
     private async runActionSequence(
@@ -359,6 +407,59 @@ export class TriggerPool {
                     const slot = action.targetSlot ?? 0;
                     if (slot >= 0 && slot < 10) {
                         ctx.variables[slot] = evaluatedValue;
+                    }
+                    break;
+                }
+                case 'hide': {
+                    if (state.persistence && action.hideKey) {
+                        const scope = action.hideScope || 'global';
+                        const key = action.hideKey;
+                        const initVal = action.initialValue ?? 0;
+
+                        state.setPendingHideInitial?.({
+                            key,
+                            scope,
+                            initialValue: initVal,
+                        });
+                        const evaluatedValue = this.evaluateActionValue(action.value, ctx);
+                        state.setPendingHideInitial?.(undefined);
+
+                        if (scope === 'global') {
+                            const globalLimit =
+                                cmd.metadata.persistenceLimits?.global ??
+                                DEFAULT_GLOBAL_PERSISTENCE_LIMIT;
+                            const exists = key in state.persistence.global;
+                            if (
+                                !exists &&
+                                Object.keys(state.persistence.global).length >= globalLimit
+                            ) {
+                                logger.warn(
+                                    `Command "${cmd.metadata.name}" reached global persistence limit (${globalLimit}); cannot create store "${key}".`,
+                                );
+                            } else {
+                                state.persistence.global[key] = evaluatedValue;
+                                state.markPersistenceDirty?.();
+                            }
+                        } else {
+                            const userId = ctx.userId || 'unknown';
+                            const perUserLimit =
+                                cmd.metadata.persistenceLimits?.perUser ??
+                                DEFAULT_PER_USER_PERSISTENCE_LIMIT;
+
+                            if (!state.persistence.users[userId]) {
+                                while (state.persistence.userOrder.length >= perUserLimit) {
+                                    const oldestUserId = state.persistence.userOrder.shift();
+                                    if (oldestUserId) {
+                                        delete state.persistence.users[oldestUserId];
+                                    }
+                                }
+                                state.persistence.users[userId] = {};
+                                state.persistence.userOrder.push(userId);
+                            }
+
+                            state.persistence.users[userId][key] = evaluatedValue;
+                            state.markPersistenceDirty?.();
+                        }
                     }
                     break;
                 }
@@ -619,12 +720,15 @@ export class TriggerPool {
             }
             case 'calc': {
                 const mathExpr = String(complex.value || '');
-                return evaluateCalc(mathExpr, ctx.variables, ctx.varAliases);
+                return evaluateCalc(mathExpr, ctx.variables, ctx.varAliases, ctx.uncoverValue);
             }
             case 'remember': {
                 const slot = complex.slot ?? 0;
                 const v = ctx.variables[slot];
                 return v !== undefined ? v : '';
+            }
+            case 'expr': {
+                return evaluateExpression(String(complex.value || ''), ctx);
             }
             case 'literal': {
                 return interpolateString(String(complex.value || ''), ctx);

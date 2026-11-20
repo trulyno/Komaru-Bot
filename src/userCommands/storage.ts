@@ -1,15 +1,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { logger } from '../logger';
-import { UserCommandJson, UserCommandTrigger } from './types';
+import {
+    CommandPersistenceData,
+    PersistenceLimits,
+    UserCommandJson,
+    UserCommandTrigger,
+} from './types';
 
 export class UserCommandStorage {
     private baseDir: string;
     private mediaDir: string;
+    private persistenceDir: string;
 
     constructor(baseDir?: string) {
         this.baseDir = baseDir || path.resolve(process.cwd(), 'data', 'user_commands');
         this.mediaDir = path.join(this.baseDir, 'media');
+        this.persistenceDir = path.join(this.baseDir, 'persistence');
         this.ensureDirectories();
     }
 
@@ -19,6 +26,9 @@ export class UserCommandStorage {
         }
         if (!fs.existsSync(this.mediaDir)) {
             fs.mkdirSync(this.mediaDir, { recursive: true });
+        }
+        if (!fs.existsSync(this.persistenceDir)) {
+            fs.mkdirSync(this.persistenceDir, { recursive: true });
         }
     }
 
@@ -143,6 +153,11 @@ export class UserCommandStorage {
         const cmdMediaFolder = path.join(this.mediaDir, name);
         if (fs.existsSync(cmdMediaFolder)) {
             fs.rmSync(cmdMediaFolder, { recursive: true, force: true });
+        }
+
+        const persistencePath = path.join(this.persistenceDir, `${name}.json`);
+        if (fs.existsSync(persistencePath)) {
+            fs.unlinkSync(persistencePath);
         }
 
         return deletedAny;
@@ -343,5 +358,46 @@ export class UserCommandStorage {
             }
         }
         return count;
+    }
+
+    public loadPersistence(cmdName: string): CommandPersistenceData {
+        this.ensureDirectories();
+        const filePath = path.join(this.persistenceDir, `${cmdName}.json`);
+        if (fs.existsSync(filePath)) {
+            try {
+                const raw = fs.readFileSync(filePath, 'utf-8');
+                const parsed = JSON.parse(raw) as Partial<CommandPersistenceData>;
+                return {
+                    global: parsed.global && typeof parsed.global === 'object' ? parsed.global : {},
+                    users: parsed.users && typeof parsed.users === 'object' ? parsed.users : {},
+                    userOrder: Array.isArray(parsed.userOrder) ? parsed.userOrder : [],
+                };
+            } catch (err) {
+                logger.error(`Error loading persistence for "${cmdName}": ${err}`);
+            }
+        }
+        return { global: {}, users: {}, userOrder: [] };
+    }
+
+    public savePersistence(cmdName: string, data: CommandPersistenceData): void {
+        this.ensureDirectories();
+        const filePath = path.join(this.persistenceDir, `${cmdName}.json`);
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    }
+
+    public updatePersistenceLimits(
+        cmdName: string,
+        limits: PersistenceLimits,
+    ): UserCommandJson | null {
+        const cmd = this.getCommand(cmdName);
+        if (!cmd) return null;
+
+        cmd.metadata.persistenceLimits = {
+            ...cmd.metadata.persistenceLimits,
+            ...limits,
+        };
+        const jsonPath = path.join(this.baseDir, `${cmd.metadata.name}.json`);
+        fs.writeFileSync(jsonPath, JSON.stringify(cmd, null, 4), 'utf-8');
+        return cmd;
     }
 }
