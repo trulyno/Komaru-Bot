@@ -1,0 +1,8 @@
+{
+  "userCooldownMs": 4000,
+  "channelCooldownMs": 2000,
+  "passiveReplyChance": 0.25,
+  "interactCooldownMs": 15000,
+  "historyLimit": 8,
+  "decayIntervalMinutes": 15
+}

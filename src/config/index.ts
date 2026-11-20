@@ -3,6 +3,7 @@ import { EnvConfig, loadEnvConfig } from './envConfig';
 import { loadJsonConfigFile } from './jsonLoader';
 import type { CatReactionsConfig } from '../services/catReactionsService';
 import type { PassTheTunaConfig } from '../passTheTuna';
+import type { KomaruChatConfig } from '../komaruChat/types';
 
 export interface TemplateConfig {
     issueTemplateFields: string[];
@@ -113,6 +114,15 @@ export const DEFAULT_PASS_THE_TUNA_CONFIG: PassTheTunaConfig = {
     events: [],
 };
 
+export const DEFAULT_KOMARU_CHAT_CONFIG: KomaruChatConfig = {
+    userCooldownMs: 4000,
+    channelCooldownMs: 2000,
+    passiveReplyChance: 0.25,
+    interactCooldownMs: 15000,
+    historyLimit: 8,
+    decayIntervalMinutes: 15,
+};
+
 import { moduleConfigService, ModuleConfigService } from '../services/moduleConfigService';
 
 class ConfigManager {
@@ -121,6 +131,7 @@ class ConfigManager {
     private auditLogConfigCache?: AuditLogConfig;
     private catReactionsConfigCache?: CatReactionsConfig;
     private passTheTunaConfigCache?: PassTheTunaConfig;
+    private komaruChatConfigCache?: KomaruChatConfig;
 
     public get env(): EnvConfig {
         if (!this.envConfigCache) {
@@ -173,6 +184,17 @@ class ConfigManager {
         return this.passTheTunaConfigCache;
     }
 
+    public get komaruChat(): KomaruChatConfig {
+        if (!this.komaruChatConfigCache) {
+            const filePath = path.resolve(process.cwd(), 'data', 'komaru_chat_config.json');
+            this.komaruChatConfigCache = loadJsonConfigFile<KomaruChatConfig>(
+                filePath,
+                DEFAULT_KOMARU_CHAT_CONFIG,
+            );
+        }
+        return this.komaruChatConfigCache;
+    }
+
     public get modules(): ModuleConfigService {
         return moduleConfigService;
     }
@@ -186,6 +208,7 @@ class ConfigManager {
         this.auditLogConfigCache = undefined;
         this.catReactionsConfigCache = undefined;
         this.passTheTunaConfigCache = undefined;
+        this.komaruChatConfigCache = undefined;
         moduleConfigService.reload();
     }
 }

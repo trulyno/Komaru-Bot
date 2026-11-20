@@ -221,7 +221,10 @@ export const handleCatReactionsMessage = async (message: any): Promise<void> => 
         }
     }
 
-    if (contentLower.includes('komaru')) {
+    if (
+        contentLower.includes('komaru') &&
+        !config.modules.isModuleEnabled('komaruChat', message.guildId, message.channelId)
+    ) {
         await respondToKomaruMention(message);
     }
 
