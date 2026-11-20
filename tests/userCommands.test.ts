@@ -1493,15 +1493,17 @@ you reply (&1 &2 &3)
         }
     });
 
-    await runTestCase('data persistence: global & per-user hide/uncover, queue eviction, and limits', async () => {
-        const testDir = path.resolve(__dirname, 'temp_persistence_test');
-        if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
-        fs.mkdirSync(testDir, { recursive: true });
+    await runTestCase(
+        'data persistence: global & per-user hide/uncover, queue eviction, and limits',
+        async () => {
+            const testDir = path.resolve(__dirname, 'temp_persistence_test');
+            if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+            fs.mkdirSync(testDir, { recursive: true });
 
-        try {
-            const storage = new UserCommandStorage(testDir);
+            try {
+                const storage = new UserCommandStorage(testDir);
 
-            const rawGlobal = `
+                const rawGlobal = `
 name "globalScore"
 meta cooldown 0
 when someone says "!gscore"
@@ -1513,28 +1515,28 @@ otherwise {
     you reply "Score: {you uncover [score]}"
 }
 `;
-            const parsedGlobal = parseUserCommand(rawGlobal, 'author_1');
-            assert.strictEqual(parsedGlobal.actions[0].type, 'hide');
-            assert.strictEqual(parsedGlobal.actions[0].hideScope, 'global');
-            assert.strictEqual(parsedGlobal.actions[0].hideKey, 'score');
-            assert.strictEqual(parsedGlobal.actions[0].initialValue, '0');
-            storage.saveCommand(parsedGlobal, rawGlobal);
+                const parsedGlobal = parseUserCommand(rawGlobal, 'author_1');
+                assert.strictEqual(parsedGlobal.actions[0].type, 'hide');
+                assert.strictEqual(parsedGlobal.actions[0].hideScope, 'global');
+                assert.strictEqual(parsedGlobal.actions[0].hideKey, 'score');
+                assert.strictEqual(parsedGlobal.actions[0].initialValue, '0');
+                storage.saveCommand(parsedGlobal, rawGlobal);
 
-            const rawUser = `
+                const rawUser = `
 name "userFoo"
 meta cooldown 0
 when someone says "!myfoo"
 you hide my [foo] {you uncover my [foo] + 1} [0]
 you reply "Foo: {you uncover my [foo]}"
 `;
-            const parsedUser = parseUserCommand(rawUser, 'author_1');
-            assert.strictEqual(parsedUser.actions[0].type, 'hide');
-            assert.strictEqual(parsedUser.actions[0].hideScope, 'user');
-            assert.strictEqual(parsedUser.actions[0].hideKey, 'foo');
-            assert.strictEqual(parsedUser.actions[0].initialValue, '0');
-            storage.saveCommand(parsedUser, rawUser);
+                const parsedUser = parseUserCommand(rawUser, 'author_1');
+                assert.strictEqual(parsedUser.actions[0].type, 'hide');
+                assert.strictEqual(parsedUser.actions[0].hideScope, 'user');
+                assert.strictEqual(parsedUser.actions[0].hideKey, 'foo');
+                assert.strictEqual(parsedUser.actions[0].initialValue, '0');
+                storage.saveCommand(parsedUser, rawUser);
 
-            const rawGlobalLimit = `
+                const rawGlobalLimit = `
 name "globalLimitTest"
 meta cooldown 0
 when someone says "!glimit"
@@ -1546,67 +1548,74 @@ you hide [k5] "v5" [""]
 you hide [k6] "v6" [""]
 you reply "{you uncover [k5]}|{you uncover [k6]}"
 `;
-            storage.saveCommand(parseUserCommand(rawGlobalLimit, 'author_1'), rawGlobalLimit);
+                storage.saveCommand(parseUserCommand(rawGlobalLimit, 'author_1'), rawGlobalLimit);
 
-            let triggerPool = new TriggerPool(storage);
-            triggerPool.loadFromStorage();
+                let triggerPool = new TriggerPool(storage);
+                triggerPool.loadFromStorage();
 
-            const replies: string[] = [];
-            const makeMsg = (content: string, userId: string) => ({
-                content,
-                author: { id: userId, bot: false, username: `User_${userId}` },
-                member: { displayName: `User_${userId}` },
-                reply: async (payload: any) => {
-                    replies.push(typeof payload === 'string' ? payload : payload.content);
-                },
-                channel: { id: 'chan_1', name: 'general', send: async () => {} },
-                guild: { name: 'TestGuild', members: { cache: new Map() }, roles: { cache: new Map() } },
-            });
+                const replies: string[] = [];
+                const makeMsg = (content: string, userId: string) => ({
+                    content,
+                    author: { id: userId, bot: false, username: `User_${userId}` },
+                    member: { displayName: `User_${userId}` },
+                    reply: async (payload: any) => {
+                        replies.push(typeof payload === 'string' ? payload : payload.content);
+                    },
+                    channel: { id: 'chan_1', name: 'general', send: async () => {} },
+                    guild: {
+                        name: 'TestGuild',
+                        members: { cache: new Map() },
+                        roles: { cache: new Map() },
+                    },
+                });
 
-            // 1. Global counter persists across TriggerPool reload
-            await triggerPool.handleMessage(makeMsg('!gscore', 'u1'));
-            assert.strictEqual(replies[replies.length - 1], 'Score: 1');
+                // 1. Global counter persists across TriggerPool reload
+                await triggerPool.handleMessage(makeMsg('!gscore', 'u1'));
+                assert.strictEqual(replies[replies.length - 1], 'Score: 1');
 
-            triggerPool = new TriggerPool(storage);
-            triggerPool.loadFromStorage();
-            await triggerPool.handleMessage(makeMsg('!gscore', 'u2'));
-            assert.strictEqual(replies[replies.length - 1], 'High score: 2');
+                triggerPool = new TriggerPool(storage);
+                triggerPool.loadFromStorage();
+                await triggerPool.handleMessage(makeMsg('!gscore', 'u2'));
+                assert.strictEqual(replies[replies.length - 1], 'High score: 2');
 
-            // 2. Global limit defaults to 5 stores (k6 rejected)
-            await triggerPool.handleMessage(makeMsg('!glimit', 'u1'));
-            assert.strictEqual(replies[replies.length - 1], 'v5|');
+                // 2. Global limit defaults to 5 stores (k6 rejected)
+                await triggerPool.handleMessage(makeMsg('!glimit', 'u1'));
+                assert.strictEqual(replies[replies.length - 1], 'v5|');
 
-            // Increasing global limit allows k6
-            const updatedGlobal = storage.updatePersistenceLimits('globalLimitTest', { global: 6 });
-            assert.ok(updatedGlobal);
-            triggerPool.registerCommand(updatedGlobal);
-            await triggerPool.handleMessage(makeMsg('!glimit', 'u1'));
-            assert.strictEqual(replies[replies.length - 1], 'v5|v6');
+                // Increasing global limit allows k6
+                const updatedGlobal = storage.updatePersistenceLimits('globalLimitTest', {
+                    global: 6,
+                });
+                assert.ok(updatedGlobal);
+                triggerPool.registerCommand(updatedGlobal);
+                await triggerPool.handleMessage(makeMsg('!glimit', 'u1'));
+                assert.strictEqual(replies[replies.length - 1], 'v5|v6');
 
-            // 3. Per-user queue eviction at 25 users
-            for (let i = 1; i <= 25; i++) {
-                await triggerPool.handleMessage(makeMsg('!myfoo', `user_${i}`));
+                // 3. Per-user queue eviction at 25 users
+                for (let i = 1; i <= 25; i++) {
+                    await triggerPool.handleMessage(makeMsg('!myfoo', `user_${i}`));
+                    assert.strictEqual(replies[replies.length - 1], 'Foo: 1');
+                }
+                // User 2 increments to 2
+                await triggerPool.handleMessage(makeMsg('!myfoo', 'user_2'));
+                assert.strictEqual(replies[replies.length - 1], 'Foo: 2');
+
+                // User 26 arrives -> oldest (user_1) is wiped from queue
+                await triggerPool.handleMessage(makeMsg('!myfoo', 'user_26'));
                 assert.strictEqual(replies[replies.length - 1], 'Foo: 1');
+
+                // User 2 still has 2
+                await triggerPool.handleMessage(makeMsg('!myfoo', 'user_2'));
+                assert.strictEqual(replies[replies.length - 1], 'Foo: 3');
+
+                // User 1 was wiped, so starts back at 0 -> 1
+                await triggerPool.handleMessage(makeMsg('!myfoo', 'user_1'));
+                assert.strictEqual(replies[replies.length - 1], 'Foo: 1');
+            } finally {
+                fs.rmSync(testDir, { recursive: true, force: true });
             }
-            // User 2 increments to 2
-            await triggerPool.handleMessage(makeMsg('!myfoo', 'user_2'));
-            assert.strictEqual(replies[replies.length - 1], 'Foo: 2');
-
-            // User 26 arrives -> oldest (user_1) is wiped from queue
-            await triggerPool.handleMessage(makeMsg('!myfoo', 'user_26'));
-            assert.strictEqual(replies[replies.length - 1], 'Foo: 1');
-
-            // User 2 still has 2
-            await triggerPool.handleMessage(makeMsg('!myfoo', 'user_2'));
-            assert.strictEqual(replies[replies.length - 1], 'Foo: 3');
-
-            // User 1 was wiped, so starts back at 0 -> 1
-            await triggerPool.handleMessage(makeMsg('!myfoo', 'user_1'));
-            assert.strictEqual(replies[replies.length - 1], 'Foo: 1');
-        } finally {
-            fs.rmSync(testDir, { recursive: true, force: true });
-        }
-    });
+        },
+    );
 
     await runTestCase(
         'data persistence: global & per-user hide/uncover, queue eviction, and limits',
@@ -1726,6 +1735,164 @@ you reply "{you uncover [k5]}|{you uncover [k6]}"
                 // User 1 was wiped, so starts back at 0 -> 1
                 await triggerPool.handleMessage(makeMsg('!myfoo', 'user_1'));
                 assert.strictEqual(replies[replies.length - 1], 'Foo: 1');
+            } finally {
+                fs.rmSync(testDir, { recursive: true, force: true });
+            }
+        },
+    );
+
+    await runTestCase(
+        'user input: you ask with validation, retry-once, no-validation, and max-inputs limit',
+        async () => {
+            const testDir = path.resolve(__dirname, 'temp_ask_test');
+            if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+            fs.mkdirSync(testDir, { recursive: true });
+
+            try {
+                const storage = new UserCommandStorage(testDir);
+
+                const rawAsk = `
+name "askAge"
+meta cooldown 0
+when someone says "!age"
+you ask {how old are you?} [1] /\\d/ {that doesn't look like a number... try again}
+you reply "You are {remember [1]} years old!"
+`;
+                const parsedAsk = parseUserCommand(rawAsk, 'author_1');
+                assert.strictEqual(parsedAsk.actions.length, 2);
+                assert.strictEqual(parsedAsk.actions[0].type, 'ask');
+                assert.strictEqual(parsedAsk.actions[0].askPrompt, 'how old are you?');
+                assert.strictEqual(parsedAsk.actions[0].targetSlot, 1);
+                assert.strictEqual(parsedAsk.actions[0].askRegex, '\\d');
+                assert.strictEqual(
+                    parsedAsk.actions[0].askRetryMessage,
+                    "that doesn't look like a number... try again",
+                );
+                storage.saveCommand(parsedAsk, rawAsk);
+
+                const rawNoVal = `
+name "askName"
+meta cooldown 0
+when someone says "!name"
+you ask {what is your name?} [0]
+you reply "Hello {remember [0]}!"
+`;
+                storage.saveCommand(parseUserCommand(rawNoVal, 'author_1'), rawNoVal);
+
+                const rawLimit = `
+name "askLimit"
+meta cooldown 0
+when someone says "!asklimit"
+you ask {q1} [0]
+you ask {q2} [1]
+you ask {q3} [2]
+you ask {q4} [3]
+you ask {q5} [4]
+you ask {q6} [5]
+you reply "Done"
+`;
+                storage.saveCommand(parseUserCommand(rawLimit, 'author_1'), rawLimit);
+
+                const triggerPool = new TriggerPool(storage);
+                triggerPool.loadFromStorage();
+                triggerPool.setInputTimeoutMs(2000);
+
+                const channelMessages: string[] = [];
+                const replies: string[] = [];
+                const makeMsg = (content: string, userId = 'u1') => ({
+                    content,
+                    author: { id: userId, bot: false, username: 'Tester' },
+                    member: { displayName: 'Tester' },
+                    reply: async (payload: any) => {
+                        replies.push(typeof payload === 'string' ? payload : payload.content);
+                    },
+                    channel: {
+                        id: 'chan_ask',
+                        name: 'general',
+                        send: async (payload: any) => {
+                            channelMessages.push(
+                                typeof payload === 'string' ? payload : payload.content,
+                            );
+                        },
+                    },
+                    guild: {
+                        name: 'TestGuild',
+                        members: { cache: new Map() },
+                        roles: { cache: new Map() },
+                    },
+                });
+
+                // 1. Valid on first try
+                const p1 = triggerPool.handleMessage(makeMsg('!age'));
+                await new Promise((r) => setTimeout(r, 10));
+                assert.strictEqual(channelMessages[channelMessages.length - 1], 'how old are you?');
+                await triggerPool.handleMessage(makeMsg('25'));
+                await p1;
+                assert.strictEqual(replies[replies.length - 1], 'You are 25 years old!');
+
+                // 2. Fail first try -> retry message -> succeed second try
+                channelMessages.length = 0;
+                replies.length = 0;
+                const p2 = triggerPool.handleMessage(makeMsg('!age'));
+                await new Promise((r) => setTimeout(r, 10));
+                assert.strictEqual(channelMessages[0], 'how old are you?');
+                await triggerPool.handleMessage(makeMsg('not a number'));
+                await new Promise((r) => setTimeout(r, 10));
+                assert.strictEqual(
+                    channelMessages[1],
+                    "that doesn't look like a number... try again",
+                );
+                await triggerPool.handleMessage(makeMsg('30'));
+                await p2;
+                assert.strictEqual(replies[0], 'You are 30 years old!');
+
+                // 3. Fail both tries -> stops command, does not reply
+                channelMessages.length = 0;
+                replies.length = 0;
+                const p3 = triggerPool.handleMessage(makeMsg('!age'));
+                await new Promise((r) => setTimeout(r, 10));
+                await triggerPool.handleMessage(makeMsg('nope'));
+                await new Promise((r) => setTimeout(r, 10));
+                await triggerPool.handleMessage(makeMsg('still nope'));
+                await p3;
+                assert.strictEqual(channelMessages.length, 2);
+                assert.strictEqual(replies.length, 0);
+
+                // 4. No validation
+                channelMessages.length = 0;
+                replies.length = 0;
+                const p4 = triggerPool.handleMessage(makeMsg('!name'));
+                await new Promise((r) => setTimeout(r, 10));
+                assert.strictEqual(channelMessages[0], 'what is your name?');
+                await triggerPool.handleMessage(makeMsg('Komaru'));
+                await p4;
+                assert.strictEqual(replies[0], 'Hello Komaru!');
+
+                // 5. Default limit of 5 user inputs stops at 6th; increasing limit to 6 allows all 6
+                channelMessages.length = 0;
+                replies.length = 0;
+                const p5 = triggerPool.handleMessage(makeMsg('!asklimit'));
+                for (let i = 1; i <= 5; i++) {
+                    await new Promise((r) => setTimeout(r, 10));
+                    await triggerPool.handleMessage(makeMsg(`ans${i}`));
+                }
+                await p5;
+                assert.strictEqual(channelMessages.length, 5);
+                assert.strictEqual(replies.length, 0);
+
+                const updatedLimit = storage.updateMaxUserInputs('askLimit', 6);
+                assert.ok(updatedLimit);
+                triggerPool.registerCommand(updatedLimit);
+                channelMessages.length = 0;
+                replies.length = 0;
+                const p6 = triggerPool.handleMessage(makeMsg('!asklimit'));
+                for (let i = 1; i <= 6; i++) {
+                    await new Promise((r) => setTimeout(r, 10));
+                    await triggerPool.handleMessage(makeMsg(`ans${i}`));
+                }
+                await p6;
+                assert.strictEqual(channelMessages.length, 6);
+                assert.strictEqual(replies[0], 'Done');
             } finally {
                 fs.rmSync(testDir, { recursive: true, force: true });
             }

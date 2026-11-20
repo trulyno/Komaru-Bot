@@ -1,5 +1,6 @@
 export const DEFAULT_GLOBAL_PERSISTENCE_LIMIT = 5;
 export const DEFAULT_PER_USER_PERSISTENCE_LIMIT = 25;
+export const DEFAULT_MAX_USER_INPUTS = 5;
 
 export interface PersistenceLimits {
     global?: number;
@@ -26,6 +27,7 @@ export interface UserCommandMetadata {
     enabled?: boolean;
     lastUsed?: Record<string, number>; // timestamp per user or global
     persistenceLimits?: PersistenceLimits;
+    maxUserInputs?: number;
 }
 
 export interface UserCommandCategory {
@@ -54,6 +56,7 @@ export type ActionType =
     | 'send'
     | 'think'
     | 'hide'
+    | 'ask'
     | 'memorize'
     | 'embed'
     | 'ponder'
@@ -132,6 +135,10 @@ export interface UserCommandAction {
     hideScope?: 'global' | 'user';
     hideKey?: string;
     initialValue?: string | number;
+    askPrompt?: string;
+    askRegex?: string;
+    askRegexFlags?: string;
+    askRetryMessage?: string;
 }
 
 export interface MediaItem {

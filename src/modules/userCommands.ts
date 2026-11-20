@@ -8,6 +8,7 @@ import { TriggerPool } from '../userCommands/triggerPool';
 import { getHelpTopicEmbed } from '../userCommands/helpProvider';
 import {
     DEFAULT_GLOBAL_PERSISTENCE_LIMIT,
+    DEFAULT_MAX_USER_INPUTS,
     DEFAULT_PER_USER_PERSISTENCE_LIMIT,
     UserCommandTrigger,
 } from '../userCommands/types';
@@ -1436,6 +1437,83 @@ const moduleDefinition: BotModule = {
                 } else {
                     await interaction.reply({
                         content: `Failed to update persistence limits for **${name}**.`,
+                        ephemeral: true,
+                    });
+                }
+            },
+        });
+
+        commandRegistry.register({
+            name: 'usercmd_input_limit',
+            description: '[Admin] View or update per-command max user inputs limit',
+            options: [
+                { name: 'name', description: 'Command name', type: 3, required: true },
+                {
+                    name: 'max_inputs',
+                    description: 'Max user inputs per execution (default 5)',
+                    type: 4,
+                    required: false,
+                },
+            ],
+            handler: async (interaction: any) => {
+                if (
+                    !interaction.memberPermissions?.has?.('Administrator') &&
+                    !isBotOwner(interaction.user.id, client)
+                ) {
+                    await interaction.reply({
+                        content: '❌ Admin permissions required.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const name = interaction.options?.getString?.('name');
+                const maxInputs = interaction.options?.getInteger?.('max_inputs');
+
+                if (!name) {
+                    await interaction.reply({
+                        content: 'Usage: /usercmd_input_limit <name> [max_inputs]',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const existing = storage.getCommand(name);
+                if (!existing) {
+                    await interaction.reply({
+                        content: `Command **${name}** not found.`,
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (maxInputs === null || maxInputs === undefined) {
+                    const current = existing.metadata.maxUserInputs ?? DEFAULT_MAX_USER_INPUTS;
+                    await interaction.reply({
+                        content: `Max user inputs for **${existing.metadata.name}**: **${current}**.`,
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (maxInputs < 0) {
+                    await interaction.reply({
+                        content: 'max_inputs must be 0 or greater.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const updated = storage.updateMaxUserInputs(existing.metadata.name, maxInputs);
+                if (updated) {
+                    triggerPool.registerCommand(updated);
+                    await interaction.reply({
+                        content: `Updated max user inputs for **${updated.metadata.name}** to **${maxInputs}**.`,
+                        ephemeral: true,
+                    });
+                } else {
+                    await interaction.reply({
+                        content: `Failed to update max user inputs for **${name}**.`,
                         ephemeral: true,
                     });
                 }

@@ -805,6 +805,15 @@ function parseActionLine(
         return action;
     }
 
+    const askMatch = line.match(/^(you\s+)?ask\s+([\s\S]+)$/i);
+    if (askMatch) {
+        const parsedAsk = parseAskArgs(askMatch[2].trim(), varAliases);
+        if (parsedAsk) {
+            return parsedAsk;
+        }
+        return null;
+    }
+
     const hideMatch = line.match(/^(you\s+)?hide\s+(my\s+)?\[([a-zA-Z0-9_-]+)\]\s+([\s\S]+)$/i);
     if (hideMatch) {
         const hideScope: 'global' | 'user' = hideMatch[2] ? 'user' : 'global';
@@ -1027,4 +1036,102 @@ function extractHideInitialValue(rest: string): { valueExpr: string; initialRaw:
     }
 
     return { valueExpr, initialRaw };
+}
+
+function readDelimitedSegment(
+    str: string,
+    startIdx: number,
+    openChar: string,
+    closeChar: string,
+): { content: string; nextIdx: number } | null {
+    if (str[startIdx] !== openChar) return null;
+    if (openChar === closeChar) {
+        // Quoted string
+        let i = startIdx + 1;
+        while (i < str.length) {
+            if (str[i] === closeChar && str[i - 1] !== '\\') {
+                return { content: str.slice(startIdx + 1, i), nextIdx: i + 1 };
+            }
+            i++;
+        }
+        return null;
+    }
+
+    let depth = 0;
+    for (let i = startIdx; i < str.length; i++) {
+        const ch = str[i];
+        if (ch === openChar) depth++;
+        else if (ch === closeChar) {
+            depth--;
+            if (depth === 0) {
+                return { content: str.slice(startIdx + 1, i), nextIdx: i + 1 };
+            }
+        }
+    }
+    return null;
+}
+
+function parseAskArgs(rest: string, varAliases: Record<string, number>): UserCommandAction | null {
+    let idx = 0;
+    while (idx < rest.length && /\s/.test(rest[idx])) idx++;
+
+    // 1. Prompt: {...} or "..."
+    const promptSeg =
+        readDelimitedSegment(rest, idx, '{', '}') || readDelimitedSegment(rest, idx, '"', '"');
+    if (!promptSeg) return null;
+    const askPrompt = promptSeg.content.trim();
+    idx = promptSeg.nextIdx;
+
+    while (idx < rest.length && /\s/.test(rest[idx])) idx++;
+
+    // 2. Target variable slot: [slot_or_alias]
+    const slotSeg = readDelimitedSegment(rest, idx, '[', ']');
+    if (!slotSeg) return null;
+    const targetSlot = resolveSlotRef(slotSeg.content.trim(), varAliases);
+    idx = slotSeg.nextIdx;
+
+    while (idx < rest.length && /\s/.test(rest[idx])) idx++;
+
+    const action: UserCommandAction = {
+        type: 'ask',
+        value: askPrompt,
+        targetSlot,
+        askPrompt,
+    };
+
+    // 3. Optional /regex/[flags]
+    if (idx < rest.length && rest[idx] === '/') {
+        let i = idx + 1;
+        while (i < rest.length) {
+            if (rest[i] === '/' && rest[i - 1] !== '\\') {
+                break;
+            }
+            i++;
+        }
+        if (i < rest.length && rest[i] === '/') {
+            action.askRegex = rest.slice(idx + 1, i);
+            idx = i + 1;
+            let flags = '';
+            while (idx < rest.length && /[gimsuy]/.test(rest[idx])) {
+                flags += rest[idx];
+                idx++;
+            }
+            if (flags) {
+                action.askRegexFlags = flags;
+            }
+        }
+    }
+
+    while (idx < rest.length && /\s/.test(rest[idx])) idx++;
+
+    // 4. Optional retry message: {...} or "..."
+    if (idx < rest.length) {
+        const retrySeg =
+            readDelimitedSegment(rest, idx, '{', '}') || readDelimitedSegment(rest, idx, '"', '"');
+        if (retrySeg) {
+            action.askRetryMessage = retrySeg.content.trim();
+        }
+    }
+
+    return action;
 }

@@ -400,4 +400,14 @@ export class UserCommandStorage {
         fs.writeFileSync(jsonPath, JSON.stringify(cmd, null, 4), 'utf-8');
         return cmd;
     }
+
+    public updateMaxUserInputs(cmdName: string, maxInputs: number): UserCommandJson | null {
+        const cmd = this.getCommand(cmdName);
+        if (!cmd) return null;
+
+        cmd.metadata.maxUserInputs = maxInputs;
+        const jsonPath = path.join(this.baseDir, `${cmd.metadata.name}.json`);
+        fs.writeFileSync(jsonPath, JSON.stringify(cmd, null, 4), 'utf-8');
+        return cmd;
+    }
 }

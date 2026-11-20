@@ -17,6 +17,7 @@ import {
     CommandPersistenceData,
     ComplexValue,
     DEFAULT_GLOBAL_PERSISTENCE_LIMIT,
+    DEFAULT_MAX_USER_INPUTS,
     DEFAULT_PER_USER_PERSISTENCE_LIMIT,
     EmbedData,
     PipelineData,
@@ -33,6 +34,8 @@ interface ThoughtGroup {
 interface ExecutionState {
     actionsRun: number;
     maxActions: number;
+    inputsUsed: number;
+    stopped: boolean;
     thoughts: Map<string, ThoughtGroup>;
     persistence?: CommandPersistenceData;
     markPersistenceDirty?: () => void;
@@ -48,6 +51,9 @@ export class TriggerPool {
     private cooldowns: Map<string, Map<string, number>> = new Map();
     // Track channel-wide execution cooldowns: channelId -> lastTimestamp
     private channelCooldowns: Map<string, number> = new Map();
+    // Track pending user input waiters: `${channelId}:${userId}` -> resolver
+    private pendingInputs: Map<string, (content: string | null) => void> = new Map();
+    private inputTimeoutMs: number = 60000;
 
     constructor(
         private storage: UserCommandStorage,
@@ -56,6 +62,10 @@ export class TriggerPool {
 
     public setConfigStore(configStore: ConfigStore): void {
         this.configStore = configStore;
+    }
+
+    public setInputTimeoutMs(ms: number): void {
+        this.inputTimeoutMs = ms;
     }
 
     public loadFromStorage(): void {
@@ -124,6 +134,15 @@ export class TriggerPool {
 
         const content = message.content.trim();
         const authorId = message.author.id;
+        const channelId = message.channel?.id || 'dm';
+        const inputKey = `${channelId}:${authorId}`;
+
+        const pendingResolver = this.pendingInputs.get(inputKey);
+        if (pendingResolver) {
+            this.pendingInputs.delete(inputKey);
+            pendingResolver(message.content);
+            return true;
+        }
 
         for (const cmd of this.commands.values()) {
             const matchResult = this.isTriggerMatch(cmd, content, authorId);
@@ -236,6 +255,7 @@ export class TriggerPool {
                     cmdCooldowns.set(authorId, now);
                 }
 
+                const hasAsk = this.containsAskAction(cmd.actions);
                 const EXECUTION_TIMEOUT_MS = 5000;
                 let timeoutHandle: NodeJS.Timeout | undefined;
                 const timeoutPromise = new Promise((_, reject) => {
@@ -249,10 +269,14 @@ export class TriggerPool {
                 });
 
                 try {
-                    await Promise.race([
-                        this.executeCommand(cmd, message, matchResult.matchGroups),
-                        timeoutPromise,
-                    ]);
+                    if (hasAsk) {
+                        await this.executeCommand(cmd, message, matchResult.matchGroups);
+                    } else {
+                        await Promise.race([
+                            this.executeCommand(cmd, message, matchResult.matchGroups),
+                            timeoutPromise,
+                        ]);
+                    }
                     return true;
                 } catch (error) {
                     logger.error(`Error executing user command "${cmd.metadata.name}": ${error}`);
@@ -367,6 +391,8 @@ export class TriggerPool {
         const state: ExecutionState = {
             actionsRun: 0,
             maxActions: 100,
+            inputsUsed: 0,
+            stopped: false,
             thoughts: new Map<string, ThoughtGroup>(),
             persistence,
             markPersistenceDirty: () => {
@@ -385,14 +411,58 @@ export class TriggerPool {
         }
     }
 
+    private containsAskAction(actions: UserCommandAction[]): boolean {
+        for (const action of actions) {
+            if (action.type === 'ask') return true;
+            if (action.type === 'ponder') {
+                const ponderData = action.value as PonderData;
+                if (ponderData?.branches?.some((b) => this.containsAskAction(b.actions))) {
+                    return true;
+                }
+                if (ponderData?.otherwise && this.containsAskAction(ponderData.otherwise)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private waitForUserInput(channelId: string, userId: string): Promise<string | null> {
+        const inputKey = `${channelId}:${userId}`;
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                if (this.pendingInputs.get(inputKey) === wrappedResolve) {
+                    this.pendingInputs.delete(inputKey);
+                }
+                resolve(null);
+            }, this.inputTimeoutMs);
+
+            const wrappedResolve = (val: string | null) => {
+                clearTimeout(timer);
+                resolve(val);
+            };
+
+            this.pendingInputs.set(inputKey, wrappedResolve);
+        });
+    }
+
     private async runActionSequence(
         actions: UserCommandAction[],
         cmd: UserCommandJson,
         message: any,
         ctx: EvaluationContext,
-        state: ExecutionState = { actionsRun: 0, maxActions: 100, thoughts: new Map() },
+        state: ExecutionState = {
+            actionsRun: 0,
+            maxActions: 100,
+            inputsUsed: 0,
+            stopped: false,
+            thoughts: new Map(),
+        },
     ): Promise<void> {
         for (const action of actions) {
+            if (state.stopped) {
+                return;
+            }
             if (state.actionsRun >= state.maxActions) {
                 logger.warn(
                     `Command "${cmd.metadata.name}" exceeded maximum action limit (${state.maxActions}). Stopping execution.`,
@@ -407,6 +477,78 @@ export class TriggerPool {
                     const slot = action.targetSlot ?? 0;
                     if (slot >= 0 && slot < 10) {
                         ctx.variables[slot] = evaluatedValue;
+                    }
+                    break;
+                }
+                case 'ask': {
+                    const maxInputs = cmd.metadata.maxUserInputs ?? DEFAULT_MAX_USER_INPUTS;
+                    if (state.inputsUsed >= maxInputs) {
+                        logger.warn(
+                            `Command "${cmd.metadata.name}" reached maximum user input limit (${maxInputs}). Stopping execution.`,
+                        );
+                        state.stopped = true;
+                        return;
+                    }
+                    state.inputsUsed++;
+
+                    const channelId = message.channel?.id || 'dm';
+                    const authorId = message.author?.id || '';
+                    const slot = action.targetSlot ?? 0;
+
+                    const promptText = await sanitizeMentions(
+                        interpolateString(action.askPrompt || '', ctx),
+                        message,
+                    );
+                    if (promptText && message.channel?.send) {
+                        await message.channel.send({
+                            content: promptText,
+                            allowedMentions: { parse: [] },
+                        });
+                    }
+
+                    const firstReply = await this.waitForUserInput(channelId, authorId);
+                    if (firstReply === null) {
+                        state.stopped = true;
+                        return;
+                    }
+
+                    let finalReply = firstReply;
+                    if (action.askRegex) {
+                        let reg: RegExp | null = null;
+                        try {
+                            reg = new RegExp(action.askRegex, action.askRegexFlags || '');
+                        } catch (err) {
+                            logger.error(
+                                `Invalid ask validation regex in "${cmd.metadata.name}": ${err}`,
+                            );
+                        }
+
+                        if (reg && !reg.test(firstReply)) {
+                            const retryText = await sanitizeMentions(
+                                interpolateString(
+                                    action.askRetryMessage || 'Invalid input. Please try again.',
+                                    ctx,
+                                ),
+                                message,
+                            );
+                            if (retryText && message.channel?.send) {
+                                await message.channel.send({
+                                    content: retryText,
+                                    allowedMentions: { parse: [] },
+                                });
+                            }
+
+                            const secondReply = await this.waitForUserInput(channelId, authorId);
+                            if (secondReply === null || !reg.test(secondReply)) {
+                                state.stopped = true;
+                                return;
+                            }
+                            finalReply = secondReply;
+                        }
+                    }
+
+                    if (slot >= 0 && slot < 10) {
+                        ctx.variables[slot] = finalReply;
                     }
                     break;
                 }
