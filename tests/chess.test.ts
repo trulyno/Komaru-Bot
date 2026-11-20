@@ -4,38 +4,51 @@ import path from 'node:path';
 import { commandRegistry } from '../src/commandRegistry';
 import chessModule from '../src/modules/chess';
 import {
-    acceptChallenge,
-    analyzeNotationError,
-    buildActiveGameActionRow,
+    acceptPendingChallenge,
+    buildActiveMatchesEmbed,
     buildChallengeActionRow,
-    buildChessBoardEmbed,
-    buildDrawOfferActionRow,
+    buildChallengeEmbed,
+    buildGameActionRow,
+    buildGameStartedEmbed,
     buildLeaderboardEmbed,
-    buildLegalMovesEmbed,
+    buildMatchEndedEmbed,
+    buildMatchStatusEmbed,
     buildPlayerStatsEmbed,
-    calculateEloDelta,
-    cancelChallenge,
-    createGameChallenge,
-    declineChallenge,
-    declineDraw,
-    executeMove,
-    getCapturedPiecesSummary,
-    getChessLeaderboard,
-    getLegalMovesList,
-    getNotationGuideEmbed,
-    getPlayerStats,
-    normalizeNotationInput,
-    offerDraw,
-    recordGameOutcome,
-    renderAsciiBoard,
+    cancelPendingChallenge,
+    clearChannelChallenges,
+    createPendingChallenge,
+    declinePendingChallenge,
+    fetchLeaderboard,
+    fetchMatchStatus,
+    fetchPlayerStats,
+    getLatestMatchForUser,
+    getPendingChallengeForUser,
+    getPlayerCodeForMatch,
+    getTrackedMatchById,
+    pollAndAnnounceEndedMatches,
+    resetChessApiConfig,
     resetChessDataDir,
-    resignGame,
+    resolveMatchResult,
+    setChessApiConfigForTesting,
     setChessDataDirForTesting,
 } from '../src/services/chessService';
 import { runTestCase } from './testHarness';
-import { Chess } from 'chess.js';
 
 const testDataDir = path.resolve(__dirname, '../data/test_chess');
+
+function createMockFetch(
+    handler: (url: string, init?: RequestInit) => { status?: number; body: unknown },
+): typeof fetch {
+    return (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        const res = handler(url, init);
+        const status = res.status ?? 200;
+        return new Response(JSON.stringify(res.body), {
+            status,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    }) as typeof fetch;
+}
 
 async function runSuite(): Promise<void> {
     if (fs.existsSync(testDataDir)) {
@@ -44,397 +57,378 @@ async function runSuite(): Promise<void> {
     setChessDataDirForTesting(testDataDir);
 
     try {
-        await runTestCase('module registers /chess command', async () => {
-            const mockClient = {
-                on: () => {},
-            };
-            await chessModule.register(mockClient);
-            const chessCmd = commandRegistry.get('chess');
-            assert.ok(chessCmd, 'chess command should be registered');
-            assert.strictEqual(chessCmd.name, 'chess');
-            assert.ok(chessCmd.options && chessCmd.options.length >= 3);
-        });
+        await runTestCase(
+            'module registers /challenge, /accept, /chess, /chess_mod, stats & leaderboard',
+            async () => {
+                const mockClient = {
+                    on: () => {},
+                };
+                await chessModule.register(mockClient);
 
-        await runTestCase('challenge creation, color selection, and acceptance', async () => {
-            const player1 = { id: 'u1', username: 'alice', displayName: 'Alice' };
-            const player2 = { id: 'u2', username: 'bob', displayName: 'Bob' };
+                assert.ok(
+                    commandRegistry.get('challenge'),
+                    'challenge command should be registered',
+                );
+                assert.ok(commandRegistry.get('accept'), 'accept command should be registered');
+                assert.ok(commandRegistry.get('chess'), 'chess command should be registered');
+                assert.ok(
+                    commandRegistry.get('chess_stats'),
+                    'chess_stats command should be registered',
+                );
+                assert.ok(
+                    commandRegistry.get('chess_leaderboard'),
+                    'chess_leaderboard command should be registered',
+                );
+                assert.ok(
+                    commandRegistry.get('chess_mod'),
+                    'chess_mod command should be registered',
+                );
+            },
+        );
 
-            // Reject self-challenge
-            const selfRes = createGameChallenge('g1', 'c1', player1, player1);
+        await runTestCase('challenge creation, decline, cancel, and clear', async () => {
+            const alice = { id: 'u1', username: 'alice', displayName: 'Alice' };
+            const bob = { id: 'u2', username: 'bob', displayName: 'Bob' };
+
+            const selfRes = createPendingChallenge('g1', 'c1', alice, alice);
             assert.strictEqual(selfRes.success, false);
 
-            // Create challenge with white preference
-            const challengeRes = createGameChallenge('g1', 'c1', player1, player2, 'white');
-            assert.strictEqual(challengeRes.success, true);
-            assert.ok(challengeRes.game);
-            assert.strictEqual(challengeRes.game.whitePlayer.id, 'u1');
-            assert.strictEqual(challengeRes.game.blackPlayer.id, 'u2');
-            assert.strictEqual(challengeRes.game.status, 'pending');
+            const created = createPendingChallenge('g1', 'c1', alice, bob, 'white');
+            assert.strictEqual(created.success, true);
+            assert.ok(created.challenge);
 
-            // Duplicate challenge in same channel should be rejected
-            const dupRes = createGameChallenge('g1', 'c1', player1, player2);
-            assert.strictEqual(dupRes.success, false);
+            const dup = createPendingChallenge('g1', 'c1', alice, bob);
+            assert.strictEqual(dup.success, false);
 
-            // Non-opponent cannot accept
-            const wrongAccept = acceptChallenge(challengeRes.game.id, 'u3');
-            assert.strictEqual(wrongAccept.success, false);
+            const found = getPendingChallengeForUser('c1', 'u2');
+            assert.strictEqual(found?.id, created.challenge.id);
 
-            // Opponent accepts
-            const acceptRes = acceptChallenge(challengeRes.game.id, 'u2');
-            assert.strictEqual(acceptRes.success, true);
-            assert.strictEqual(acceptRes.game?.status, 'active');
-            assert.strictEqual(acceptRes.game?.turn, 'w');
-        });
+            const embed = buildChallengeEmbed(created.challenge);
+            const row = buildChallengeActionRow(created.challenge.id);
+            assert.ok(embed.data.title?.includes('Chess Challenge'));
+            assert.strictEqual(row.components.length, 3);
 
-        await runTestCase('move execution and turn enforcement', async () => {
-            const player1 = { id: 'u10', username: 'white_player' };
-            const player2 = { id: 'u20', username: 'black_player' };
-
-            const c = createGameChallenge('g2', 'c2', player1, player2, 'white');
-            assert.ok(c.game);
-            acceptChallenge(c.game.id, 'u20');
-
-            // Black tries to move when it's White's turn
-            const wrongTurn = executeMove(c.game.id, 'u20', 'e5');
-            assert.strictEqual(wrongTurn.success, false);
-            assert.ok(wrongTurn.error?.includes('not your turn'));
-
-            // White makes valid move e4
-            const move1 = executeMove(c.game.id, 'u10', 'e4');
-            assert.strictEqual(move1.success, true);
-            assert.strictEqual(move1.move?.san, 'e4');
-            assert.strictEqual(move1.game?.turn, 'b');
-
-            // Black replies with e5
-            const move2 = executeMove(c.game.id, 'u20', 'e5');
-            assert.strictEqual(move2.success, true);
-            assert.strictEqual(move2.move?.san, 'e5');
-            assert.strictEqual(move2.game?.turn, 'w');
-        });
-
-        await runTestCase("checkmate detection (Scholar's Mate)", async () => {
-            const white = { id: 'w1', username: 'white' };
-            const black = { id: 'b1', username: 'black' };
-
-            const res = createGameChallenge('g3', 'c3', white, black, 'white');
-            const gameId = res.game!.id;
-            acceptChallenge(gameId, 'b1');
-
-            // 1. e4 e5
-            executeMove(gameId, 'w1', 'e4');
-            executeMove(gameId, 'b1', 'e5');
-
-            // 2. Bc4 Nc6
-            executeMove(gameId, 'w1', 'Bc4');
-            executeMove(gameId, 'b1', 'Nc6');
-
-            // 3. Qh5 Nf6??
-            executeMove(gameId, 'w1', 'Qh5');
-            executeMove(gameId, 'b1', 'Nf6');
-
-            // 4. Qxf7# (Checkmate!)
-            const mateMove = executeMove(gameId, 'w1', 'Qxf7#');
-            assert.strictEqual(mateMove.success, true);
-            assert.strictEqual(mateMove.game?.status, 'completed');
-            assert.strictEqual(mateMove.game?.result?.winner, 'white');
-            assert.strictEqual(mateMove.game?.result?.reason, 'checkmate');
-
-            // Verify embed formats winner correctly
-            const embed = buildChessBoardEmbed(mateMove.game!);
-            assert.ok(embed.data.title?.includes('Checkmate'));
-        });
-
-        await runTestCase('castling validation (kingside and queenside)', async () => {
-            const white = { id: 'cw', username: 'castler_white' };
-            const black = { id: 'cb', username: 'castler_black' };
-
-            const res = createGameChallenge('g4', 'c4', white, black, 'white');
-            const gameId = res.game!.id;
-            acceptChallenge(gameId, 'cb');
-
-            // Attempt early castle when path blocked -> should fail
-            const earlyCastle = executeMove(gameId, 'cw', 'O-O');
-            assert.strictEqual(earlyCastle.success, false);
-            assert.ok(
-                earlyCastle.diagnostic?.includes('blocked') ||
-                    earlyCastle.diagnostic?.includes('not a legal move'),
-            );
-
-            // Clear kingside path: 1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5
-            executeMove(gameId, 'cw', 'e4');
-            executeMove(gameId, 'cb', 'e5');
-            executeMove(gameId, 'cw', 'Nf3');
-            executeMove(gameId, 'cb', 'Nc6');
-            executeMove(gameId, 'cw', 'Bc4');
-            executeMove(gameId, 'cb', 'Bc5');
-
-            // White castles kingside: 4. O-O
-            const castleMove = executeMove(gameId, 'cw', 'O-O');
-            assert.strictEqual(castleMove.success, true);
-            assert.strictEqual(castleMove.move?.san, 'O-O');
-            assert.strictEqual(castleMove.move?.flags.includes('k'), true);
-
-            // Shorthand normalization: lowercase o-o or 0-0
-            assert.strictEqual(normalizeNotationInput('0-0'), 'O-O');
-            assert.strictEqual(normalizeNotationInput('o-o'), 'O-O');
-            assert.strictEqual(normalizeNotationInput('0-0-0'), 'O-O-O');
-        });
-
-        await runTestCase('en passant validation', async () => {
-            const white = { id: 'ep_w', username: 'ep_white' };
-            const black = { id: 'ep_b', username: 'ep_black' };
-
-            const res = createGameChallenge('g5', 'c5', white, black, 'white');
-            const gameId = res.game!.id;
-            acceptChallenge(gameId, 'ep_b');
-
-            // 1. e4 a6
-            executeMove(gameId, 'ep_w', 'e4');
-            executeMove(gameId, 'ep_b', 'a6');
-
-            // 2. e5 d5 (Black moves pawn 2 squares adjacent to White pawn on e5)
-            executeMove(gameId, 'ep_w', 'e5');
-            executeMove(gameId, 'ep_b', 'd5');
-
-            // White captures en passant: 3. exd6
-            const epMove = executeMove(gameId, 'ep_w', 'exd6');
-            assert.strictEqual(epMove.success, true);
-            assert.strictEqual(epMove.move?.san, 'exd6');
-            assert.strictEqual(epMove.move?.flags.includes('e'), true);
-            assert.strictEqual(epMove.move?.captured, 'p');
-
-            // Verify black pawn on d5 was removed
-            const c = new Chess(epMove.game!.fen);
-            assert.strictEqual(c.get('d5'), undefined);
-            assert.strictEqual(c.get('d6')?.type, 'p');
-            assert.strictEqual(c.get('d6')?.color, 'w');
-        });
-
-        await runTestCase('resignation and draw workflow', async () => {
-            const white = { id: 'rw', username: 'resigner' };
-            const black = { id: 'rb', username: 'winner' };
-
-            const res = createGameChallenge('g6', 'c6', white, black, 'white');
-            const gameId = res.game!.id;
-            acceptChallenge(gameId, 'rb');
-
-            // Offer draw from white
-            const draw1 = offerDraw(gameId, 'rw');
-            assert.strictEqual(draw1.success, true);
-            assert.strictEqual(draw1.accepted, false);
-
-            // Decline draw from black
-            const declineDrawRes = declineDraw(gameId, 'rb');
-            assert.strictEqual(declineDrawRes.success, true);
-
-            // Offer draw again, black accepts
-            offerDraw(gameId, 'rw');
-            const drawAccept = offerDraw(gameId, 'rb');
-            assert.strictEqual(drawAccept.success, true);
-            assert.strictEqual(drawAccept.accepted, true);
-            assert.strictEqual(drawAccept.game?.status, 'completed');
-            assert.strictEqual(drawAccept.game?.result?.reason, 'mutual_draw');
-
-            // Resignation in new match
-            const res2 = createGameChallenge('g7', 'c7', white, black, 'white');
-            const game2Id = res2.game!.id;
-            acceptChallenge(game2Id, 'rb');
-
-            const resignRes = resignGame(game2Id, 'rw');
-            assert.strictEqual(resignRes.success, true);
-            assert.strictEqual(resignRes.game?.status, 'completed');
-            assert.strictEqual(resignRes.game?.result?.winner, 'black');
-            assert.strictEqual(resignRes.game?.result?.reason, 'resignation');
-        });
-
-        await runTestCase('notation error diagnostic assistant', async () => {
-            const chess = new Chess();
-
-            // 1. User enters coordinate notation e2e4 instead of e4
-            const diagUci = analyzeNotationError('e2e4', chess, 'w');
-            assert.ok(diagUci.includes('coordinate notation'));
-            assert.ok(diagUci.includes('e4'));
-
-            // 2. User writes "castle"
-            const diagCastle = analyzeNotationError('castle', chess, 'w');
-            assert.ok(diagCastle.includes('O-O'));
-
-            // 3. User uses K for knight (Kf3 instead of Nf3)
-            const diagK = analyzeNotationError('Kf3', chess, 'w');
-            assert.ok(diagK.includes('Nf3'));
-            assert.ok(diagK.includes('Knight'));
-
-            // 4. User types words "knight to f3"
-            const diagWords = analyzeNotationError('knight to f3', chess, 'w');
-            assert.ok(diagWords.includes('Nf3'));
-
-            // 5. User types invalid pawn capture "xd5"
-            const diagPawnCap = analyzeNotationError('xd5', chess, 'w');
-            assert.ok(
-                diagPawnCap.includes('departure file') || diagPawnCap.includes('Pawn captures'),
-            );
-        });
-
-        await runTestCase('board rendering, captured pieces, and UI builders', async () => {
-            const chess = new Chess();
-            const boardStr = renderAsciiBoard(chess);
-            assert.ok(boardStr.includes('♜'));
-            assert.ok(boardStr.includes('♖'));
-            assert.ok(boardStr.includes('・'));
-            assert.ok(boardStr.includes('a  b  c  d  e  f  g  h'));
-
-            // Material summary on opening board
-            const captured = getCapturedPiecesSummary(chess);
-            assert.strictEqual(captured.materialDiff, 0);
-            assert.strictEqual(captured.whiteCaptured, 'None');
-            assert.strictEqual(captured.blackCaptured, 'None');
-
-            // Legal moves list
-            const legalMoves = getLegalMovesList(chess);
-            assert.strictEqual(legalMoves.length, 20); // 16 pawn + 4 knight moves in opening
-            const e2Moves = getLegalMovesList(chess, 'e2');
-            assert.deepStrictEqual(e2Moves.sort(), ['e3', 'e4']);
-
-            // Guide embed
-            const guideEmbed = getNotationGuideEmbed();
-            assert.ok(guideEmbed.data.title?.includes('Standard Algebraic Notation'));
-
-            // Action row builders
-            const challengeRow = buildChallengeActionRow('test_id');
-            assert.strictEqual(challengeRow.components.length, 3);
-
-            const activeRow = buildActiveGameActionRow('test_id');
-            assert.strictEqual(activeRow.components.length, 4);
-
-            const drawRow = buildDrawOfferActionRow('test_id');
-            assert.strictEqual(drawRow.components.length, 2);
-
-            const gameDummy = {
-                id: 't_dummy',
-                guildId: 'g',
-                channelId: 'c',
-                challengerId: 'u1',
-                opponentId: 'u2',
-                whitePlayer: { id: 'u1', username: 'u1' },
-                blackPlayer: { id: 'u2', username: 'u2' },
-                status: 'active' as const,
-                turn: 'w' as const,
-                fen: chess.fen(),
-                pgn: '',
-                history: [],
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-            };
-            const movesEmbed = buildLegalMovesEmbed(gameDummy);
-            assert.ok(movesEmbed.data.description?.includes('20'));
-        });
-
-        await runTestCase('challenge decline and cancellation', async () => {
-            const p1 = { id: 'p1', username: 'p1' };
-            const p2 = { id: 'p2', username: 'p2' };
-
-            const c1 = createGameChallenge('g8', 'c8', p1, p2);
-            assert.ok(c1.game);
-
-            // Challenger cancels
-            const cancelRes = cancelChallenge(c1.game.id, 'p1');
-            assert.strictEqual(cancelRes.success, true);
-            assert.strictEqual(cancelRes.game?.status, 'completed');
+            // Wrong user cannot decline
+            const wrongDecline = declinePendingChallenge(created.challenge.id, 'u1');
+            assert.strictEqual(wrongDecline.success, false);
 
             // Opponent declines
-            const c2 = createGameChallenge('g9', 'c9', p1, p2);
-            assert.ok(c2.game);
-            const declineRes = declineChallenge(c2.game.id, 'p2');
-            assert.strictEqual(declineRes.success, true);
-            assert.strictEqual(declineRes.game?.status, 'completed');
-        });
+            const declined = declinePendingChallenge(created.challenge.id, 'u2');
+            assert.strictEqual(declined.success, true);
 
-        await runTestCase('elo rating calculations and delta math', async () => {
-            // Equal rating (1200 vs 1200) -> win gets +16, loss gets -16, draw gets 0
-            const winDelta = calculateEloDelta(1200, 1200, 1);
-            const lossDelta = calculateEloDelta(1200, 1200, 0);
-            const drawDelta = calculateEloDelta(1200, 1200, 0.5);
+            // Create again and challenger cancels
+            const created2 = createPendingChallenge('g1', 'c1', alice, bob, 'random');
+            assert.ok(created2.challenge);
+            const wrongCancel = cancelPendingChallenge(created2.challenge.id, 'u2');
+            assert.strictEqual(wrongCancel.success, false);
+            const cancelled = cancelPendingChallenge(created2.challenge.id, 'u1');
+            assert.strictEqual(cancelled.success, true);
 
-            assert.strictEqual(winDelta, 16);
-            assert.strictEqual(lossDelta, -16);
-            assert.strictEqual(drawDelta, 0);
-
-            // Strong player (1600) beats weaker player (1200) -> small gain
-            const strongWin = calculateEloDelta(1600, 1200, 1);
-            assert.ok(strongWin < 16 && strongWin > 0);
-
-            // Upset: weaker player (1200) beats strong player (1600) -> large gain
-            const upsetWin = calculateEloDelta(1200, 1600, 1);
-            assert.ok(upsetWin > 16);
-        });
-
-        await runTestCase('match outcome records player stats, ratings, and streaks', async () => {
-            const p1 = { id: 'stat_p1', username: 'player_one', displayName: 'Player One' };
-            const p2 = { id: 'stat_p2', username: 'player_two', displayName: 'Player Two' };
-
-            // Before any match
-            const initialP1 = getPlayerStats('stat_p1', 'player_one');
-            assert.strictEqual(initialP1.rating, 1200);
-            assert.strictEqual(initialP1.gamesPlayed, 0);
-            assert.strictEqual(initialP1.wins, 0);
-
-            // Game 1: P1 wins as White by resignation
-            const challenge = createGameChallenge('g_stat', 'c_stat', p1, p2, 'white');
-            acceptChallenge(challenge.game!.id, 'stat_p2');
-            resignGame(challenge.game!.id, 'stat_p2');
-
-            const afterP1 = getPlayerStats('stat_p1');
-            const afterP2 = getPlayerStats('stat_p2');
-
-            assert.strictEqual(afterP1.gamesPlayed, 1);
-            assert.strictEqual(afterP1.wins, 1);
-            assert.strictEqual(afterP1.winsAsWhite, 1);
-            assert.strictEqual(afterP1.rating, 1216);
-            assert.strictEqual(afterP1.highestRating, 1216);
-            assert.strictEqual(afterP1.currentStreak, 1);
-            assert.strictEqual(afterP1.highestStreak, 1);
-
-            assert.strictEqual(afterP2.gamesPlayed, 1);
-            assert.strictEqual(afterP2.losses, 1);
-            assert.strictEqual(afterP2.rating, 1184);
-            assert.strictEqual(afterP2.currentStreak, -1);
-
-            // Verify stats embed
-            const embed = buildPlayerStatsEmbed(afterP1);
-            assert.ok(embed.data.title?.includes('Player One'));
-            assert.ok(embed.data.description?.includes('stat_p1'));
-            assert.ok(
-                embed.data.fields?.some(
-                    (f) => f.name.includes('Rating') && f.value.includes('1216'),
-                ),
-            );
-        });
-
-        await runTestCase('chess leaderboard ranking and formatting', async () => {
-            const leaderboard = getChessLeaderboard();
-            assert.ok(leaderboard.length >= 2);
-            assert.ok(leaderboard.some((p) => p.userId === 'stat_p1' && p.rating === 1216));
-            assert.ok(leaderboard.some((p) => p.userId === 'stat_p2' && p.rating === 1184));
-
-            const lbEmbed = buildLeaderboardEmbed('Test Guild');
-            assert.ok(lbEmbed.data.title?.includes('Test Guild'));
-            assert.ok(lbEmbed.data.description?.includes('🥇'));
-            assert.ok(lbEmbed.data.description?.includes('1216'));
+            // Clear channel
+            createPendingChallenge('g1', 'c1', alice, bob);
+            assert.strictEqual(clearChannelChallenges('c1'), 1);
         });
 
         await runTestCase(
-            'registration of /chess_stats and /chess_leaderboard commands',
+            'accepting challenge calls POST /games/start and distributes codes',
             async () => {
-                const statsCmd = commandRegistry.get('chess_stats');
-                const lbCmd = commandRegistry.get('chess_leaderboard');
+                let capturedAuth: string | undefined;
+                let capturedBody: any;
 
-                assert.ok(statsCmd, 'chess_stats command should be registered');
-                assert.ok(lbCmd, 'chess_leaderboard command should be registered');
-                assert.strictEqual(statsCmd.name, 'chess_stats');
-                assert.strictEqual(lbCmd.name, 'chess_leaderboard');
+                setChessApiConfigForTesting({
+                    baseUrl: 'https://games.trulyno.dev/api/v1',
+                    apiKey: 'test-secret-key',
+                    fetchImpl: createMockFetch((url, init) => {
+                        if (url.endsWith('/games/start')) {
+                            const headers = init?.headers as Record<string, string>;
+                            capturedAuth = headers?.Authorization;
+                            capturedBody = JSON.parse(String(init?.body || '{}'));
+                            return {
+                                status: 201,
+                                body: {
+                                    matchId: 'k9Xp2_mQ8vR1aB4c',
+                                    game: 'chess',
+                                    status: 'waiting',
+                                    gameUrl:
+                                        'https://games.trulyno.dev/game/chess/k9Xp2_mQ8vR1aB4c',
+                                    spectateUrl:
+                                        'https://games.trulyno.dev/spectate/chess/k9Xp2_mQ8vR1aB4c',
+                                    players: {
+                                        white: {
+                                            playerId: 'A7K9M2P4Q8R3',
+                                            code: 'A7K9M2P4Q8R3',
+                                            username: 'alice',
+                                            elo: 1200,
+                                            url: 'https://games.trulyno.dev/play/chess/k9Xp2_mQ8vR1aB4c/A7K9M2P4Q8R3',
+                                        },
+                                        black: {
+                                            playerId: 'B4N6P8T2W5Y9',
+                                            code: 'B4N6P8T2W5Y9',
+                                            username: 'bob',
+                                            elo: 1220,
+                                            url: 'https://games.trulyno.dev/play/chess/k9Xp2_mQ8vR1aB4c/B4N6P8T2W5Y9',
+                                        },
+                                    },
+                                    createdAt: '2026-11-20T12:00:00.000Z',
+                                },
+                            };
+                        }
+                        return { status: 404, body: { error: 'Not found' } };
+                    }),
+                });
+
+                const alice = { id: 'u10', username: 'alice', displayName: 'Alice' };
+                const bob = { id: 'u20', username: 'bob', displayName: 'Bob' };
+                const c = createPendingChallenge('g2', 'c2', alice, bob, 'white');
+                assert.ok(c.challenge);
+
+                const accepted = await acceptPendingChallenge(c.challenge.id, 'u20');
+                assert.strictEqual(accepted.success, true);
+                assert.strictEqual(capturedAuth, 'Bearer test-secret-key');
+                assert.strictEqual(capturedBody.assignColors, 'ordered');
+                assert.strictEqual(accepted.match?.matchId, 'k9Xp2_mQ8vR1aB4c');
+                assert.strictEqual(accepted.match?.white.userId, 'u10');
+                assert.strictEqual(accepted.match?.black.userId, 'u20');
+
+                // Both players can retrieve their own auth codes
+                const whiteCode = await getPlayerCodeForMatch('k9Xp2_mQ8vR1aB4c', 'u10');
+                assert.strictEqual(whiteCode.success, true);
+                assert.strictEqual(whiteCode.side, 'white');
+                assert.strictEqual(whiteCode.code, 'A7K9M2P4Q8R3');
+
+                const blackCode = await getPlayerCodeForMatch('k9Xp2_mQ8vR1aB4c', 'u20');
+                assert.strictEqual(blackCode.success, true);
+                assert.strictEqual(blackCode.side, 'black');
+                assert.strictEqual(blackCode.code, 'B4N6P8T2W5Y9');
+
+                // Non-player cannot retrieve code
+                const outsider = await getPlayerCodeForMatch('k9Xp2_mQ8vR1aB4c', 'u99');
+                assert.strictEqual(outsider.success, false);
+
+                // Latest match lookup
+                const latest = getLatestMatchForUser('g2', 'u10', 'c2');
+                assert.strictEqual(latest?.matchId, 'k9Xp2_mQ8vR1aB4c');
+
+                const startedEmbed = buildGameStartedEmbed(accepted.match!, accepted.startResponse);
+                const actionRow = buildGameActionRow(
+                    accepted.match!.matchId,
+                    accepted.match!.gameUrl,
+                    accepted.match!.spectateUrl,
+                );
+                assert.ok(startedEmbed.data.url?.includes('k9Xp2_mQ8vR1aB4c'));
+                assert.strictEqual(actionRow.components.length, 3);
+            },
+        );
+
+        await runTestCase(
+            'polling detects finished match, announces once, and skips thereafter',
+            async () => {
+                const sentMessages: any[] = [];
+                const mockClient = {
+                    channels: {
+                        fetch: async (_channelId: string) => ({
+                            send: async (payload: any) => {
+                                sentMessages.push(payload);
+                            },
+                        }),
+                    },
+                };
+
+                setChessApiConfigForTesting({
+                    baseUrl: 'https://games.trulyno.dev/api/v1',
+                    apiKey: 'test-secret-key',
+                    fetchImpl: createMockFetch((url) => {
+                        if (url.includes('/bot/matches')) {
+                            return {
+                                status: 200,
+                                body: {
+                                    matches: [
+                                        {
+                                            matchId: 'k9Xp2_mQ8vR1aB4c',
+                                            game: 'chess',
+                                            status: 'finished',
+                                            players: {
+                                                white: {
+                                                    username: 'alice',
+                                                    eloBefore: 1200,
+                                                    eloAfter: 1216,
+                                                },
+                                                black: {
+                                                    username: 'bob',
+                                                    eloBefore: 1220,
+                                                    eloAfter: 1204,
+                                                },
+                                            },
+                                            state: { moveCount: 34 },
+                                            result: { winner: 'white', reason: 'checkmate' },
+                                            gameUrl:
+                                                'https://games.trulyno.dev/game/chess/k9Xp2_mQ8vR1aB4c',
+                                            spectateUrl:
+                                                'https://games.trulyno.dev/spectate/chess/k9Xp2_mQ8vR1aB4c',
+                                            createdAt: '2026-11-20T12:00:00.000Z',
+                                            endedAt: '2026-11-20T12:25:00.000Z',
+                                        },
+                                    ],
+                                },
+                            };
+                        }
+                        return { status: 404, body: { error: 'Not found' } };
+                    }),
+                });
+
+                const announced1 = await pollAndAnnounceEndedMatches(mockClient);
+                assert.strictEqual(announced1, 1);
+                assert.strictEqual(sentMessages.length, 1);
+                assert.ok(sentMessages[0].content.includes('k9Xp2_mQ8vR1aB4c'));
+
+                const tracked = getTrackedMatchById('k9Xp2_mQ8vR1aB4c');
+                assert.strictEqual(tracked?.status, 'finished');
+                assert.strictEqual(tracked?.announcedEnd, true);
+
+                // Second poll should not re-announce
+                const announced2 = await pollAndAnnounceEndedMatches(mockClient);
+                assert.strictEqual(announced2, 0);
+                assert.strictEqual(sentMessages.length, 1);
+            },
+        );
+
+        await runTestCase(
+            'querying match status, leaderboard, stats, and moderation result',
+            async () => {
+                let postedResultBody: any;
+
+                setChessApiConfigForTesting({
+                    baseUrl: 'https://games.trulyno.dev/api/v1',
+                    apiKey: 'test-secret-key',
+                    fetchImpl: createMockFetch((url, init) => {
+                        if (url.endsWith('/games/match_mod_1/result')) {
+                            postedResultBody = JSON.parse(String(init?.body || '{}'));
+                            return {
+                                status: 200,
+                                body: {
+                                    matchId: 'match_mod_1',
+                                    game: 'chess',
+                                    status: 'aborted',
+                                    players: {
+                                        white: {
+                                            username: 'alice',
+                                            eloBefore: 1200,
+                                            eloAfter: 1200,
+                                        },
+                                        black: { username: 'bob', eloBefore: 1200, eloAfter: 1200 },
+                                    },
+                                    result: { winner: 'abort', reason: 'timeout' },
+                                    gameUrl: 'https://games.trulyno.dev/game/chess/match_mod_1',
+                                    spectateUrl:
+                                        'https://games.trulyno.dev/spectate/chess/match_mod_1',
+                                    createdAt: '2026-11-20T12:00:00.000Z',
+                                    endedAt: '2026-11-20T12:10:00.000Z',
+                                },
+                            };
+                        }
+                        if (url.endsWith('/games/k9Xp2_mQ8vR1aB4c')) {
+                            return {
+                                status: 200,
+                                body: {
+                                    matchId: 'k9Xp2_mQ8vR1aB4c',
+                                    game: 'chess',
+                                    status: 'active',
+                                    players: {
+                                        white: { username: 'alice', elo: 1200 },
+                                        black: { username: 'bob', elo: 1220 },
+                                    },
+                                    state: {
+                                        pgn: '1. e4 e5',
+                                        moveCount: 2,
+                                        turn: 'w',
+                                        inCheck: false,
+                                        lastMove: {
+                                            from: 'e7',
+                                            to: 'e5',
+                                            san: 'e5',
+                                            piece: 'p',
+                                            color: 'b',
+                                        },
+                                    },
+                                    gameUrl:
+                                        'https://games.trulyno.dev/game/chess/k9Xp2_mQ8vR1aB4c',
+                                    spectateUrl:
+                                        'https://games.trulyno.dev/spectate/chess/k9Xp2_mQ8vR1aB4c',
+                                    createdAt: '2026-11-20T12:00:00.000Z',
+                                },
+                            };
+                        }
+                        if (url.includes('/games/chess/leaderboard')) {
+                            return {
+                                status: 200,
+                                body: {
+                                    leaderboard: [
+                                        {
+                                            username: 'alice',
+                                            elo: 1250,
+                                            wins: 5,
+                                            losses: 1,
+                                            draws: 0,
+                                        },
+                                        {
+                                            username: 'bob',
+                                            elo: 1180,
+                                            wins: 2,
+                                            losses: 4,
+                                            draws: 1,
+                                        },
+                                    ],
+                                },
+                            };
+                        }
+                        if (url.includes('/games/chess/players/alice/stats')) {
+                            return {
+                                status: 200,
+                                body: {
+                                    username: 'alice',
+                                    elo: 1250,
+                                    peakElo: 1265,
+                                    gamesPlayed: 6,
+                                    wins: 5,
+                                    losses: 1,
+                                    draws: 0,
+                                    currentStreak: 3,
+                                    bestStreak: 4,
+                                },
+                            };
+                        }
+                        return { status: 404, body: { error: 'Not found' } };
+                    }),
+                });
+
+                const status = await fetchMatchStatus('k9Xp2_mQ8vR1aB4c');
+                const statusEmbed = buildMatchStatusEmbed(status);
+                assert.ok(statusEmbed.data.title?.includes('k9Xp2_mQ8vR1aB4c'));
+
+                const lb = await fetchLeaderboard(5);
+                assert.strictEqual(lb.length, 2);
+                const lbEmbed = buildLeaderboardEmbed(lb);
+                assert.ok(lbEmbed.data.description?.includes('alice'));
+
+                const stats = await fetchPlayerStats('alice');
+                const statsEmbed = buildPlayerStatsEmbed(stats);
+                assert.ok(statsEmbed.data.title?.includes('alice'));
+
+                const activeEmbed = buildActiveMatchesEmbed([status]);
+                assert.ok(activeEmbed.data.description?.includes('k9Xp2_mQ8vR1aB4c'));
+
+                const modRes = await resolveMatchResult('match_mod_1', {
+                    winner: 'abort',
+                    reason: 'timeout',
+                });
+                assert.strictEqual(postedResultBody.winner, 'abort');
+                assert.strictEqual(postedResultBody.reason, 'timeout');
+                const endedEmbed = buildMatchEndedEmbed(modRes);
+                assert.ok(endedEmbed.data.title?.includes('Aborted'));
             },
         );
     } finally {
+        resetChessApiConfig();
         resetChessDataDir();
         if (fs.existsSync(testDataDir)) {
             fs.rmSync(testDataDir, { recursive: true, force: true });
@@ -442,7 +436,11 @@ async function runSuite(): Promise<void> {
     }
 }
 
-runSuite().catch((err) => {
-    console.error(err);
-    process.exit(1);
-});
+runSuite()
+    .then(() => {
+        console.log('Chess test suite completed successfully.');
+    })
+    .catch((err) => {
+        console.error('Chess test suite failed:', err);
+        process.exit(1);
+    });

@@ -1,59 +1,29 @@
-Feature: Interactive Two-Player Chess Minigame
+Feature: Web-App Chess Integration
   As a Discord server member
-  I want to play chess using Standard Algebraic Notation (SAN)
-  So that I can challenge other members, track ratings, view statistics, and climb the leaderboard
+  I want to challenge others to chess via the bot and receive web-app authentication codes
+  So that we can play on the chess web app, let others spectate, query live updates, and see match results automatically
 
   Background:
     Given the chess module is registered and ready
 
-  Scenario: Creating and accepting a chess game challenge
-    Given user "Alice" challenges user "Bob" to a chess game
-    When "Bob" accepts the challenge
-    Then a new active game starts with "Alice" playing White and "Bob" playing Black
-    And the initial board position is rendered
+  Scenario: Challenging a player and accepting to start a web-app match
+    Given user "Alice" challenges user "Bob" using /challenge
+    When "Bob" accepts the challenge using /accept or the Accept button
+    Then the bot calls POST /api/v1/games/start with both players
+    And the bot posts a public embed containing the gameUrl and spectateUrl
+    And both players can retrieve their private authentication codes ephemerally
 
-  Scenario: Creating, declining, and cancelling a challenge
-    Given user "Alice" challenges user "Bob" with auto-declining
-    When "Bob" declines the challenge
-    Then the challenge state is marked as declined
-    Given user "Alice" challenges user "Charlie"
-    When "Alice" cancels the challenge
-    Then the challenge state is marked as cancelled
+  Scenario: Querying live match status, active matches, stats, and leaderboard
+    Given an ongoing or finished match on the web app
+    When a user runs /chess action:status, /chess action:active, /chess_stats, or /chess_leaderboard
+    Then the bot queries the web-app API and displays the formatted embed
 
-  Scenario: Executing legal moves and advancing turns
-    Given an active game between "Alice" (White) and "Bob" (Black)
-    When "Alice" moves "e4"
-    Then the move is accepted and recorded in SAN history
-    And it becomes "Bob"'s turn (Black)
-    When "Bob" moves "e5"
-    Then the move is accepted and recorded in SAN history
-    And it becomes "Alice"'s turn (White)
+  Scenario: Continuous polling announces ended matches
+    Given an active match tracked by the bot
+    When the scheduled polling job detects status "finished" or "aborted" via GET /api/v1/bot/matches
+    Then the bot posts a match result embed in the origin channel once
 
-  Scenario: Validating illegal moves and providing educational notation suggestions
-    Given an active game where it is White's turn
-    When White attempts illegal move "e5"
-    Then the move is rejected with an explanation that the pawn cannot jump two squares to an occupied or invalid position
-    When White provides lowercase piece notation "nf3"
-    Then the notation analyzer normalizes it to "Nf3"
-
-  Scenario: Resolving game outcome by checkmate and updating Elo ratings
-    Given an active game reaching Scholar's Mate
-    When White plays "Qxf7#" delivering checkmate
-    Then the game is marked as completed with White winning
-    And White's Elo rating increases
-    And Black's Elo rating decreases
-
-  Scenario: Resigning a game and offering a draw
-    Given an active game between "Alice" and "Bob"
-    When "Alice" resigns the game
-    Then "Bob" is declared the winner by resignation
-    Given another active game between "Alice" and "Bob"
-    When "Alice" offers a draw and "Bob" accepts
-    Then the game ends as a draw and Elo ratings adjust for a tied match
-
-  Scenario: Viewing player statistics and server leaderboards
-    Given users with completed games and Elo ratings
-    When a user requests the chess leaderboard
-    Then an embed is generated sorting players by rating descending
-    When a user requests personal stats for "Alice"
-    Then an embed is generated showing rating, win rate, streak, and game history
+  Scenario: Moderators resolving or aborting matches
+    Given a moderator invokes /chess_mod
+    When they run force_win, force_draw, or abort for a matchId
+    Then the bot calls POST /api/v1/games/:matchId/result and announces the outcome

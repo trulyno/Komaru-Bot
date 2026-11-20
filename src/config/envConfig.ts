@@ -31,6 +31,11 @@ export interface EnvConfig {
     ticketInactivityHours: number;
     ticketCategoryId?: string;
     ticketCategoryName: string;
+
+    // Chess Web App API
+    chessApiBaseUrl: string;
+    chessBotApiKey?: string;
+    chessPollIntervalSeconds: number;
 }
 
 export function loadEnvConfig(): EnvConfig {
@@ -80,5 +85,14 @@ export function loadEnvConfig(): EnvConfig {
         ticketInactivityHours,
         ticketCategoryId: process.env.TICKET_CATEGORY_ID || undefined,
         ticketCategoryName: process.env.TICKET_CATEGORY_NAME || 'Tickets',
+
+        chessApiBaseUrl: (
+            process.env.CHESS_API_BASE_URL || 'https://games.trulyno.dev/api/v1'
+        ).replace(/\/+$/, ''),
+        chessBotApiKey: process.env.CHESS_BOT_API_KEY || process.env.BOT_API_KEY || undefined,
+        chessPollIntervalSeconds: Math.max(
+            10,
+            Number(process.env.CHESS_POLL_INTERVAL_SECONDS) || 30,
+        ),
     };
 }
