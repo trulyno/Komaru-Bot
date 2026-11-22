@@ -95,8 +95,7 @@ export function findGithubReferences(
         const number = Number(match[2]);
         const normalizedRepository = normalizeRepository(repository);
         const key = `${normalizedRepository.toLowerCase()}#${number}`;
-        const linkOnly =
-            content[index - 1] === '<' && content[index + match[0].length] === '>';
+        const linkOnly = content[index - 1] === '<' && content[index + match[0].length] === '>';
         const existingReference = references.get(key);
         if (!existingReference || index < existingReference.index) {
             references.set(key, {
@@ -199,7 +198,8 @@ function getGithubStatus(issue: GithubIssue): { label: string; color: number } {
         return { label: 'Open', color: STATUS_COLORS.open };
     }
     if (issue.state_reason === 'not_planned' || issue.state_reason === 'duplicate') {
-        const label = issue.state_reason === 'duplicate' ? 'Closed (duplicate)' : 'Closed (not planned)';
+        const label =
+            issue.state_reason === 'duplicate' ? 'Closed (duplicate)' : 'Closed (not planned)';
         return { label, color: STATUS_COLORS.notPlanned };
     }
     return { label: 'Closed (completed)', color: STATUS_COLORS.completed };
