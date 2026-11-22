@@ -150,11 +150,82 @@ export function getAuditChannel(guild: any): any | null {
     return null;
 }
 
+const MAX_EMBED_FIELDS = 25;
+const MAX_FIELD_VALUE = 1024;
+const MAX_REUPLOAD_FILES = 5;
+const MAX_REUPLOAD_BYTES = 8 * 1024 * 1024;
+
+function getMessageAttachments(message: any): any[] {
+    const attachments = message?.attachments;
+    if (!attachments?.size) {
+        return [];
+    }
+    return [...attachments.values()];
+}
+
+function isImageAttachment(attachment: any): boolean {
+    return (
+        String(attachment?.contentType ?? '').startsWith('image/') ||
+        /\.(png|jpe?g|gif|webp)$/i.test(String(attachment?.name ?? ''))
+    );
+}
+
+function buildAttachmentFieldValues(attachments: any[]): string[] {
+    const values: string[] = [];
+    let current = '';
+    for (const [index, attachment] of attachments.entries()) {
+        const name = String(attachment.name ?? 'file').replace(/[[\]]/g, '');
+        const line = `${index + 1}. [${name}](${attachment.url})`.slice(0, MAX_FIELD_VALUE);
+        if (current && current.length + line.length + 1 > MAX_FIELD_VALUE) {
+            values.push(current);
+            current = line;
+        } else {
+            current = current
+                ? `${current}
+${line}`
+                : line;
+        }
+    }
+    if (current) {
+        values.push(current);
+    }
+    return values;
+}
+
+async function downloadAttachments(
+    attachments: any[],
+): Promise<Array<{ attachment: Buffer; name: string }>> {
+    const files: Array<{ attachment: Buffer; name: string }> = [];
+    let totalBytes = 0;
+    for (const attachment of attachments.slice(0, MAX_REUPLOAD_FILES)) {
+        const size = Number(attachment.size ?? 0);
+        if (!attachment.url || totalBytes + size > MAX_REUPLOAD_BYTES) {
+            continue;
+        }
+        try {
+            const response = await fetch(attachment.url);
+            if (!response.ok) {
+                continue;
+            }
+            const buffer = Buffer.from(await response.arrayBuffer());
+            if (totalBytes + buffer.length > MAX_REUPLOAD_BYTES) {
+                continue;
+            }
+            totalBytes += buffer.length;
+            files.push({ attachment: buffer, name: String(attachment.name ?? 'file') });
+        } catch (error) {
+            logger.warn(`Failed to download attachment for audit log: ${error}`);
+        }
+    }
+    return files;
+}
+
 export async function sendAuditLog(
     guild: any,
     title: string,
     description: string,
     fields: Array<{ name: string; value: string }> = [],
+    message?: any,
 ): Promise<void> {
     const channel = getAuditChannel(guild);
     if (!channel) {
@@ -162,14 +233,54 @@ export async function sendAuditLog(
     }
 
     try {
+        const allFields = [...fields];
+        const files: Array<{ attachment: Buffer; name: string }> = [];
+        let image: { url: string } | undefined;
+
+        if (message) {
+            const sourceChannelId = message.channelId ?? message.channel?.id;
+            if (sourceChannelId) {
+                allFields.push({ name: 'Channel', value: `<#${sourceChannelId}>` });
+            }
+
+            const attachments = getMessageAttachments(message);
+            if (attachments.length) {
+                const values = buildAttachmentFieldValues(attachments);
+                values.forEach((value, index) => {
+                    allFields.push({
+                        name:
+                            index === 0
+                                ? `Attachments (${attachments.length})`
+                                : 'Attachments (cont.)',
+                        value,
+                    });
+                });
+
+                files.push(...(await downloadAttachments(attachments)));
+                const firstImage = attachments[0];
+                if (isImageAttachment(firstImage)) {
+                    const uploaded = files.find((file) => file.name === firstImage.name);
+                    image = {
+                        url: uploaded
+                            ? `attachment://${encodeURIComponent(uploaded.name)}`
+                            : firstImage.url,
+                    };
+                }
+            }
+        }
+
         const embed = {
             title,
             description,
             color: 0xed4245,
             timestamp: new Date().toISOString(),
-            fields,
+            fields: allFields.slice(0, MAX_EMBED_FIELDS).map((field) => ({
+                ...field,
+                value: field.value.slice(0, MAX_FIELD_VALUE) || '​',
+            })),
+            ...(image ? { image } : {}),
         };
-        await channel.send({ embeds: [embed] });
+        await channel.send({ embeds: [embed], ...(files.length ? { files } : {}) });
     } catch (error) {
         logger.error(`Failed to send audit log for ${guild?.id}: ${error}`);
     }
@@ -299,6 +410,7 @@ export async function handleDuplicateSpamming(message: any): Promise<void> {
                 { name: 'Channels', value: `${existingEntry.channels.size}` },
                 { name: 'Content', value: contentPreview },
             ],
+            message,
         );
 
         const messagesToDelete = [
@@ -375,6 +487,7 @@ export async function handleGhostPingDelete(message: any): Promise<void> {
             { name: 'User', value: `<@${message.author.id}>` },
             { name: 'Content', value: truncate(message.content || 'No content') },
         ],
+        message,
     );
 }
 
@@ -416,10 +529,16 @@ export async function handleMessageDeletion(message: any): Promise<void> {
     }
 
     const deletionReason = 'Message removed';
-    await sendAuditLog(message.guild, 'Message removed', deletionReason, [
-        { name: 'User', value: `<@${message.author.id}>` },
-        { name: 'Content', value: truncate(message.content || 'No content') },
-    ]);
+    await sendAuditLog(
+        message.guild,
+        'Message removed',
+        deletionReason,
+        [
+            { name: 'User', value: `<@${message.author.id}>` },
+            { name: 'Content', value: truncate(message.content || 'No content') },
+        ],
+        message,
+    );
 }
 
 export async function handleBanAdd(guildBan: any): Promise<void> {
