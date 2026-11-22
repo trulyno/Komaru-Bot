@@ -1,4 +1,4 @@
-import { Colors, EmbedBuilder } from 'discord.js';
+import { EmbedBuilder } from 'discord.js';
 import { commandRegistry } from '../commandRegistry';
 import {
     GLOBAL_PREFIX_SCOPE,
@@ -21,8 +21,12 @@ interface GithubIssue {
     html_url: string;
     labels?: GithubLabel[];
     number: number;
-    pull_request?: unknown;
+    draft?: boolean;
+    pull_request?: {
+        merged_at?: string | null;
+    };
     state: string;
+    state_reason?: string | null;
     title: string;
     updated_at?: string;
     user?: {
@@ -32,6 +36,7 @@ interface GithubIssue {
 }
 
 export interface GithubReference {
+    linkOnly?: boolean;
     number: number;
     repository: string;
 }
@@ -39,6 +44,8 @@ export interface GithubReference {
 const prefixStore = new GithubPrefixStore();
 const MAX_REFERENCES_PER_MESSAGE = 5;
 const MAX_DESCRIPTION_LENGTH = 3_500;
+const MAX_TITLE_LENGTH = 200;
+const MAX_MESSAGE_LENGTH = 2_000;
 
 function truncate(value: string, maxLength: number): string {
     if (value.length <= maxLength) {
@@ -83,23 +90,31 @@ export function findGithubReferences(
     maxReferences = MAX_REFERENCES_PER_MESSAGE,
 ): GithubReference[] {
     const references = new Map<string, { index: number; reference: GithubReference }>();
-    const addReference = (repository: string, issueNumber: string, index: number): void => {
-        const number = Number(issueNumber);
+    const addReference = (match: RegExpMatchArray, repository: string): void => {
+        const index = match.index ?? 0;
+        const number = Number(match[2]);
         const normalizedRepository = normalizeRepository(repository);
         const key = `${normalizedRepository.toLowerCase()}#${number}`;
+        const linkOnly = content[index - 1] === '<' && content[index + match[0].length] === '>';
         const existingReference = references.get(key);
         if (!existingReference || index < existingReference.index) {
             references.set(key, {
                 index,
-                reference: { repository: normalizedRepository, number },
+                reference: {
+                    repository: normalizedRepository,
+                    number,
+                    linkOnly: linkOnly || Boolean(existingReference?.reference.linkOnly),
+                },
             });
+        } else if (linkOnly) {
+            existingReference.reference.linkOnly = true;
         }
     };
 
     const fullReferencePattern =
         /(?<![a-z0-9_./-])([a-z0-9_.-]+\/[a-z0-9_.-]+)#([1-9]\d*)(?![a-z0-9_])/gi;
     for (const match of content.matchAll(fullReferencePattern)) {
-        addReference(match[1], match[2], match.index);
+        addReference(match, match[1]);
     }
 
     const aliases = store.listForGuild(guildId);
@@ -109,7 +124,7 @@ export function findGithubReferences(
             'gi',
         );
         for (const match of content.matchAll(aliasPattern)) {
-            addReference(alias.repository, match[2], match.index);
+            addReference(match, alias.repository);
         }
     }
 
@@ -158,17 +173,48 @@ export async function fetchGithubIssue(
     return issue;
 }
 
+const STATUS_COLORS = {
+    open: 0x238636,
+    draft: 0x6e7681,
+    merged: 0x8957e5,
+    completed: 0x8957e5,
+    closed: 0xda3633,
+    notPlanned: 0x6e7681,
+};
+
+function getGithubStatus(issue: GithubIssue): { label: string; color: number } {
+    const isOpen = issue.state.toLowerCase() === 'open';
+    if (issue.pull_request) {
+        if (isOpen) {
+            return issue.draft
+                ? { label: 'Draft', color: STATUS_COLORS.draft }
+                : { label: 'Open', color: STATUS_COLORS.open };
+        }
+        return issue.pull_request.merged_at
+            ? { label: 'Merged', color: STATUS_COLORS.merged }
+            : { label: 'Closed', color: STATUS_COLORS.closed };
+    }
+    if (isOpen) {
+        return { label: 'Open', color: STATUS_COLORS.open };
+    }
+    if (issue.state_reason === 'not_planned' || issue.state_reason === 'duplicate') {
+        const label =
+            issue.state_reason === 'duplicate' ? 'Closed (duplicate)' : 'Closed (not planned)';
+        return { label, color: STATUS_COLORS.notPlanned };
+    }
+    return { label: 'Closed (completed)', color: STATUS_COLORS.completed };
+}
+
 export function buildGithubEmbed(repository: string, issue: GithubIssue): EmbedBuilder {
-    const isPullRequest = Boolean(issue.pull_request);
-    const type = isPullRequest ? 'Pull Request' : 'Issue';
-    const state = issue.state.toLowerCase() === 'open' ? 'Open' : 'Closed';
+    const type = issue.pull_request ? 'Pull Request' : 'Issue';
+    const status = getGithubStatus(issue);
     const labels = issue.labels?.map((label) => `\`${label.name}\``).join(' ') || 'None';
     const embed = new EmbedBuilder()
         .setTitle(truncate(`${type} #${issue.number}: ${issue.title}`, 256))
         .setURL(issue.html_url)
-        .setColor(state === 'Open' ? Colors.Green : Colors.Red)
+        .setColor(status.color)
         .addFields(
-            { name: 'Status', value: state, inline: true },
+            { name: 'Status', value: status.label, inline: true },
             { name: 'Author', value: issue.user?.login ?? 'Unknown', inline: true },
             { name: 'Comments', value: String(issue.comments ?? 0), inline: true },
             { name: 'Labels', value: truncate(labels, 1_024), inline: false },
@@ -189,27 +235,71 @@ export function buildGithubEmbed(repository: string, issue: GithubIssue): EmbedB
     return embed;
 }
 
+function escapeMarkdownLinkText(value: string): string {
+    return value
+        .replace(/\s+/g, ' ')
+        .replace(/[\\[\]*_`~|<>]/g, '\\$&')
+        .trim();
+}
+
+function formatGithubLink(issue: GithubIssue): string {
+    const title = truncate(escapeMarkdownLinkText(issue.title), MAX_TITLE_LENGTH);
+    return `[${title}](<${issue.html_url}>)`;
+}
+
+function buildGithubList(issues: GithubIssue[]): string {
+    const lines: string[] = [];
+    let length = 0;
+    for (const issue of issues) {
+        const line = `- ${formatGithubLink(issue)}`;
+        length += line.length + (lines.length > 0 ? 1 : 0);
+        if (length > MAX_MESSAGE_LENGTH) {
+            break;
+        }
+        lines.push(line);
+    }
+    return lines.join('\n');
+}
+
 async function handleGithubReferences(message: any): Promise<void> {
     if (!message?.guild || message.author?.bot) {
         return;
     }
 
     const references = findGithubReferences(message.content ?? '', message.guild.id, prefixStore);
+    const resolved: { reference: GithubReference; issue: GithubIssue }[] = [];
     for (const reference of references) {
         try {
             const issue = await fetchGithubIssue(reference.repository, reference.number);
-            if (!issue) {
-                continue;
+            if (issue) {
+                resolved.push({ reference, issue });
             }
-            await message.reply({
-                embeds: [buildGithubEmbed(reference.repository, issue)],
-                allowedMentions: { repliedUser: false },
-            });
         } catch (error) {
             logger.warn(
                 `GitHub lookup failed for ${reference.repository}#${reference.number}: ${String(error)}`,
             );
         }
+    }
+
+    if (resolved.length === 0) {
+        return;
+    }
+
+    const allowedMentions = { parse: [], repliedUser: false };
+    try {
+        if (resolved.length === 1 && !resolved[0].reference.linkOnly) {
+            await message.reply({
+                embeds: [buildGithubEmbed(resolved[0].reference.repository, resolved[0].issue)],
+                allowedMentions,
+            });
+        } else {
+            await message.reply({
+                content: buildGithubList(resolved.map((entry) => entry.issue)),
+                allowedMentions,
+            });
+        }
+    } catch (error) {
+        logger.warn(`Failed to send GitHub reference reply: ${String(error)}`);
     }
 }
 
@@ -225,11 +315,11 @@ import { BotModule } from '../moduleLoader';
 
 const moduleDefinition: BotModule = {
     name: 'githubReferences',
-    description: 'Embeds public GitHub issues and pull requests referenced in messages',
+    description: 'Embeds or links public GitHub issues and pull requests referenced in messages',
     help: {
-        summary: 'Automatic GitHub issues/PR embeds and repository prefix mapping',
+        summary: 'Automatic GitHub issue/PR embeds and links, and repository prefix mapping',
         description:
-            'Detects owner/repo#123 or prefix#123 patterns in chat messages, fetches metadata from GitHub API, and renders informative embed cards.',
+            'Detects owner/repo#123 or prefix#123 patterns in chat messages, fetches metadata from GitHub API, and replies with an embed card for a single reference or a list of links for several.',
         usage: '/github_prefix_add | /github_prefix_remove | /github_prefix_list or #123 syntax in chat',
         commands: [
             {
