@@ -1,6 +1,32 @@
 {
     "versions": [
         {
+            "version": "0.5.0",
+            "date": "2026-11-23",
+            "title": "Komaru Chatbot, Chess Web App Rework & User Command Enhancements",
+            "description": "Added the rule-based Komaru chatbot, reworked chess around the web app API with automatic role rewards, expanded user commands with persistence and interactive inputs, and improved audit logs, GitHub embeds, and deploy exclusions.",
+            "sections": [
+                {
+                    "title": "Added",
+                    "items": [
+                        "Rule-based Komaru the Cat chatbot (komaruChat) with mood, energy, hunger, and bond tracking via /chat, /komaru_mood, /komaru_interact, and /komaru_channel.",
+                        "Automatic chess role rewards (/chess_roles) for first match, Elo tiers (stacked or highest-only), and #1 top player.",
+                        "User command persistence (hide, think, expr), interactive user input (ask with regex validation), message/media groups, and /usercmd_persistence_limits & /usercmd_input_limit admin commands.",
+                        "Audit log attachment re-uploads, image previews, metadata fields, and source channel links for deleted/spam/ghost-pinged messages.",
+                        "Link-only <owner/repo#number> GitHub references and status-aware embed colors/labels (draft, merged, closed, duplicate, not planned)."
+                    ]
+                },
+                {
+                    "title": "Changed",
+                    "items": [
+                        "Reworked chess (/challenge, /accept, /chess, /chess_stats, /chess_leaderboard, /chess_mod) to use the external chess web app API with polling and auth codes.",
+                        "Allowed moderators to enable and disable user commands via /usercmd_enable and /usercmd_disable.",
+                        "Expanded deploy.ts and .gitignore exclusions to protect production guild configs and runtime state across all modules."
+                    ]
+                }
+            ]
+        },
+        {
             "version": "0.4.0",
             "date": "2026-11-13",
             "title": "Legacy Tag Conversion & Production Deployment Pipeline",
