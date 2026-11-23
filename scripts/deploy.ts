@@ -335,19 +335,40 @@ async function main(): Promise<void> {
         }
     }
 
-    // 7.4 Sync data/ directory (Preserving existing user state, strictly excluding test/dev user commands)
+    // 7.4 Sync data/ directory (Preserving existing prod state, strictly excluding dev/test runtime state & guild configs)
     const sourceDataDir = path.join(projectRoot, 'data');
     const targetDataDir = path.join(options.targetDir, 'data');
     if (fs.existsSync(sourceDataDir)) {
-        const sourceUserCommandsDir = path.join(sourceDataDir, 'user_commands');
+        const excludedDirs = new Set([
+            'user_commands',
+            'user_commands_config',
+            'chess',
+            'tickets',
+            'reaction_roles',
+            'color_of_the_day',
+            'larp_jar',
+            'komaru_chat',
+        ]);
+        const excludedFiles = new Set([
+            'modules_config.json',
+            'github_reference_prefixes.json',
+            'timezones.json',
+            path.join('pass_the_tuna', 'state.json'),
+            path.join('pass_the_tuna', 'config.json'),
+        ]);
+
         copyRecursiveSync(sourceDataDir, targetDataDir, {
             preserveExisting: true,
             exclude: (srcPath) => {
-                // Strictly exclude user commands from test/dev environment
-                if (
-                    srcPath === sourceUserCommandsDir ||
-                    srcPath.startsWith(sourceUserCommandsDir + path.sep)
-                ) {
+                const relPath = path.relative(sourceDataDir, srcPath);
+                if (!relPath) {
+                    return false;
+                }
+                const topSegment = relPath.split(path.sep)[0];
+                if (topSegment.startsWith('test_') || excludedDirs.has(topSegment)) {
+                    return true;
+                }
+                if (excludedFiles.has(relPath)) {
                     return true;
                 }
                 return false;
@@ -372,7 +393,7 @@ async function main(): Promise<void> {
         }
 
         logSuccess(
-            'Synced data directory (existing production data preserved; dev/test user commands excluded).',
+            'Synced data directory (existing production data preserved; dev/test runtime state & guild configs excluded).',
         );
     }
 
