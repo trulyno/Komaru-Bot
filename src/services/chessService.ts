@@ -191,11 +191,31 @@ export class ChessApiError extends Error {
     }
 }
 
+export interface EloRoleTier {
+    minElo: number;
+    roleId: string;
+}
+
+export interface GuildChessRoleConfig {
+    firstMatchRoleId?: string;
+    topPlayerRoleId?: string;
+    currentTopPlayerUserId?: string;
+    stackEloRoles: boolean;
+    eloTiers: EloRoleTier[];
+    usernameToUserId: Record<string, string>;
+}
+
+export interface ChessRolesStore {
+    guilds: Record<string, GuildChessRoleConfig>;
+}
+
 const DEFAULT_DATA_DIR = path.resolve(__dirname, '../../data/chess');
 const MATCHES_FILE_NAME = 'matches.json';
+const ROLES_FILE_NAME = 'roles.json';
 
 let chessDataDir = DEFAULT_DATA_DIR;
 let chessMatchesFile = path.join(DEFAULT_DATA_DIR, MATCHES_FILE_NAME);
+let chessRolesFile = path.join(DEFAULT_DATA_DIR, ROLES_FILE_NAME);
 
 interface ApiTestOverride {
     baseUrl?: string;
@@ -208,6 +228,7 @@ let apiOverride: ApiTestOverride | null = null;
 export function setChessDataDirForTesting(customDir: string): void {
     chessDataDir = customDir;
     chessMatchesFile = path.join(customDir, MATCHES_FILE_NAME);
+    chessRolesFile = path.join(customDir, ROLES_FILE_NAME);
     if (!fs.existsSync(chessDataDir)) {
         fs.mkdirSync(chessDataDir, { recursive: true });
     }
@@ -216,6 +237,7 @@ export function setChessDataDirForTesting(customDir: string): void {
 export function resetChessDataDir(): void {
     chessDataDir = DEFAULT_DATA_DIR;
     chessMatchesFile = path.join(DEFAULT_DATA_DIR, MATCHES_FILE_NAME);
+    chessRolesFile = path.join(DEFAULT_DATA_DIR, ROLES_FILE_NAME);
     if (!fs.existsSync(chessDataDir)) {
         fs.mkdirSync(chessDataDir, { recursive: true });
     }
@@ -377,6 +399,8 @@ export function createPendingChallenge(
 
     store.challenges.push(challenge);
     saveChessStore(store);
+    recordPlayerUserMapping(guildId, challenger.id, challenger.username);
+    recordPlayerUserMapping(guildId, opponent.id, opponent.username);
     return { success: true, challenge };
 }
 
@@ -578,6 +602,8 @@ export async function acceptPendingChallenge(
     freshStore.challenges = freshStore.challenges.filter((c) => c.id !== challenge.id);
     freshStore.matches.push(match);
     saveChessStore(freshStore);
+    recordPlayerUserMapping(challenge.guildId, whiteUser.userId, whiteUser.username);
+    recordPlayerUserMapping(challenge.guildId, blackUser.userId, blackUser.username);
 
     return { success: true, match, startResponse };
 }
@@ -835,6 +861,16 @@ export async function pollAndAnnounceEndedMatches(client: any): Promise<number> 
                 logger.error(
                     `Failed to announce ended chess match ${tracked.matchId} in channel ${tracked.channelId}: ${error}`,
                 );
+            }
+
+            if (summary.status === 'finished') {
+                try {
+                    await syncChessRolesAfterMatch(client, tracked.guildId, fullStatus, tracked);
+                } catch (error) {
+                    logger.error(
+                        `Failed to sync chess roles for finished match ${tracked.matchId}: ${error}`,
+                    );
+                }
             }
 
             tracked.announcedEnd = true;
@@ -1117,4 +1153,440 @@ export function buildPlayerStatsEmbed(stats: PlayerStatsResponse): EmbedBuilder 
             { name: 'Current Streak', value: String(stats.currentStreak ?? 0), inline: true },
             { name: 'Best Streak', value: String(stats.bestStreak ?? 0), inline: true },
         );
+}
+
+function createDefaultGuildRoleConfig(): GuildChessRoleConfig {
+    return {
+        stackEloRoles: true,
+        eloTiers: [],
+        usernameToUserId: {},
+    };
+}
+
+export function loadChessRolesStore(): ChessRolesStore {
+    try {
+        if (!fs.existsSync(chessDataDir)) {
+            fs.mkdirSync(chessDataDir, { recursive: true });
+        }
+        if (!fs.existsSync(chessRolesFile)) {
+            const initial: ChessRolesStore = { guilds: {} };
+            fs.writeFileSync(chessRolesFile, JSON.stringify(initial, null, 2), 'utf-8');
+            return initial;
+        }
+        const raw = fs.readFileSync(chessRolesFile, 'utf-8');
+        const parsed = JSON.parse(raw) as Partial<ChessRolesStore>;
+        return {
+            guilds: parsed.guilds && typeof parsed.guilds === 'object' ? parsed.guilds : {},
+        };
+    } catch (error) {
+        logger.error(`Failed to load chess roles store: ${error}`);
+        return { guilds: {} };
+    }
+}
+
+export function saveChessRolesStore(store: ChessRolesStore): void {
+    try {
+        if (!fs.existsSync(chessDataDir)) {
+            fs.mkdirSync(chessDataDir, { recursive: true });
+        }
+        fs.writeFileSync(chessRolesFile, JSON.stringify(store, null, 2), 'utf-8');
+    } catch (error) {
+        logger.error(`Failed to save chess roles store: ${error}`);
+    }
+}
+
+export function getGuildChessRoleConfig(guildId: string): GuildChessRoleConfig {
+    const store = loadChessRolesStore();
+    const existing = store.guilds[guildId];
+    if (!existing) {
+        return createDefaultGuildRoleConfig();
+    }
+    return {
+        firstMatchRoleId: existing.firstMatchRoleId,
+        topPlayerRoleId: existing.topPlayerRoleId,
+        currentTopPlayerUserId: existing.currentTopPlayerUserId,
+        stackEloRoles: existing.stackEloRoles ?? true,
+        eloTiers: Array.isArray(existing.eloTiers)
+            ? existing.eloTiers.slice().sort((a, b) => a.minElo - b.minElo)
+            : [],
+        usernameToUserId:
+            existing.usernameToUserId && typeof existing.usernameToUserId === 'object'
+                ? existing.usernameToUserId
+                : {},
+    };
+}
+
+function mutateGuildRoleConfig(
+    guildId: string,
+    mutator: (cfg: GuildChessRoleConfig) => void,
+): GuildChessRoleConfig {
+    const store = loadChessRolesStore();
+    const cfg = getGuildChessRoleConfig(guildId);
+    mutator(cfg);
+    cfg.eloTiers.sort((a, b) => a.minElo - b.minElo);
+    store.guilds[guildId] = cfg;
+    saveChessRolesStore(store);
+    return cfg;
+}
+
+export function recordPlayerUserMapping(guildId: string, userId: string, username: string): void {
+    const key = username.trim().toLowerCase();
+    if (!key || !userId) {
+        return;
+    }
+    mutateGuildRoleConfig(guildId, (cfg) => {
+        cfg.usernameToUserId[key] = userId;
+    });
+}
+
+export function setFirstMatchRole(guildId: string, roleId?: string): GuildChessRoleConfig {
+    return mutateGuildRoleConfig(guildId, (cfg) => {
+        cfg.firstMatchRoleId = roleId;
+    });
+}
+
+export function setTopPlayerRole(guildId: string, roleId?: string): GuildChessRoleConfig {
+    return mutateGuildRoleConfig(guildId, (cfg) => {
+        cfg.topPlayerRoleId = roleId;
+        if (!roleId) {
+            cfg.currentTopPlayerUserId = undefined;
+        }
+    });
+}
+
+export function upsertEloRole(
+    guildId: string,
+    minElo: number,
+    roleId: string,
+): GuildChessRoleConfig {
+    return mutateGuildRoleConfig(guildId, (cfg) => {
+        const existingIdx = cfg.eloTiers.findIndex((t) => t.minElo === minElo);
+        if (existingIdx >= 0) {
+            cfg.eloTiers[existingIdx] = { minElo, roleId };
+        } else {
+            cfg.eloTiers.push({ minElo, roleId });
+        }
+    });
+}
+
+export function removeEloRole(
+    guildId: string,
+    minElo?: number,
+    roleId?: string,
+): { removed: boolean; config: GuildChessRoleConfig } {
+    let removed = false;
+    const updated = mutateGuildRoleConfig(guildId, (cfg) => {
+        const before = cfg.eloTiers.length;
+        cfg.eloTiers = cfg.eloTiers.filter((t) => {
+            if (typeof minElo === 'number' && t.minElo === minElo) {
+                return false;
+            }
+            if (roleId && t.roleId === roleId) {
+                return false;
+            }
+            return true;
+        });
+        removed = cfg.eloTiers.length < before;
+    });
+    return { removed, config: updated };
+}
+
+export function setEloRoleStacking(guildId: string, stack: boolean): GuildChessRoleConfig {
+    return mutateGuildRoleConfig(guildId, (cfg) => {
+        cfg.stackEloRoles = stack;
+    });
+}
+
+function hasAnyRoleRewardConfigured(cfg: GuildChessRoleConfig): boolean {
+    return Boolean(cfg.firstMatchRoleId || cfg.topPlayerRoleId || cfg.eloTiers.length > 0);
+}
+
+export async function resolveDiscordUserIdForUsername(
+    guild: any,
+    guildId: string,
+    username: string,
+): Promise<string | undefined> {
+    const key = username.trim().toLowerCase();
+    if (!key) {
+        return undefined;
+    }
+
+    const roleCfg = getGuildChessRoleConfig(guildId);
+    if (roleCfg.usernameToUserId[key]) {
+        return roleCfg.usernameToUserId[key];
+    }
+
+    const matches = listTrackedMatches(guildId, false);
+    for (const m of matches) {
+        if (m.white.username.toLowerCase() === key && m.white.userId) {
+            return m.white.userId;
+        }
+        if (m.black.username.toLowerCase() === key && m.black.userId) {
+            return m.black.userId;
+        }
+    }
+
+    const cachedMember = guild?.members?.cache?.find?.(
+        (member: any) => member.user?.username?.toLowerCase() === key,
+    );
+    if (cachedMember?.id) {
+        recordPlayerUserMapping(guildId, cachedMember.id, username);
+        return cachedMember.id;
+    }
+
+    return undefined;
+}
+
+export async function syncRolesForPlayer(
+    guild: any,
+    roleConfig: GuildChessRoleConfig,
+    userId: string,
+    elo: number | undefined,
+    grantFirstMatch: boolean,
+): Promise<string[]> {
+    let member: any;
+    try {
+        member = await guild?.members?.fetch?.(userId);
+    } catch {
+        return [];
+    }
+    if (!member?.roles) {
+        return [];
+    }
+
+    const addedRoleIds: string[] = [];
+
+    if (grantFirstMatch && roleConfig.firstMatchRoleId) {
+        if (!member.roles.cache?.has?.(roleConfig.firstMatchRoleId)) {
+            try {
+                await member.roles.add(roleConfig.firstMatchRoleId);
+                addedRoleIds.push(roleConfig.firstMatchRoleId);
+            } catch (error) {
+                logger.warn(
+                    `Failed to add first-match chess role ${roleConfig.firstMatchRoleId} to ${userId}: ${error}`,
+                );
+            }
+        }
+    }
+
+    if (roleConfig.eloTiers.length > 0 && typeof elo === 'number') {
+        const eligible = roleConfig.eloTiers.filter((t) => elo >= t.minElo);
+
+        if (roleConfig.stackEloRoles) {
+            for (const tier of eligible) {
+                if (!member.roles.cache?.has?.(tier.roleId)) {
+                    try {
+                        await member.roles.add(tier.roleId);
+                        addedRoleIds.push(tier.roleId);
+                    } catch (error) {
+                        logger.warn(
+                            `Failed to add Elo role ${tier.roleId} (${tier.minElo}) to ${userId}: ${error}`,
+                        );
+                    }
+                }
+            }
+        } else {
+            const highest = eligible.length > 0 ? eligible[eligible.length - 1] : undefined;
+            const protectedIds = new Set<string>(
+                [roleConfig.firstMatchRoleId, roleConfig.topPlayerRoleId].filter(
+                    (id): id is string => Boolean(id),
+                ),
+            );
+
+            for (const tier of roleConfig.eloTiers) {
+                if (
+                    tier.roleId !== highest?.roleId &&
+                    !protectedIds.has(tier.roleId) &&
+                    member.roles.cache?.has?.(tier.roleId)
+                ) {
+                    try {
+                        await member.roles.remove(tier.roleId);
+                    } catch (error) {
+                        logger.warn(
+                            `Failed to remove Elo role ${tier.roleId} from ${userId}: ${error}`,
+                        );
+                    }
+                }
+            }
+
+            if (highest && !member.roles.cache?.has?.(highest.roleId)) {
+                try {
+                    await member.roles.add(highest.roleId);
+                    addedRoleIds.push(highest.roleId);
+                } catch (error) {
+                    logger.warn(
+                        `Failed to add Elo role ${highest.roleId} (${highest.minElo}) to ${userId}: ${error}`,
+                    );
+                }
+            }
+        }
+    }
+
+    return addedRoleIds;
+}
+
+export async function syncTopPlayerRoleForGuild(
+    guild: any,
+    guildId: string,
+): Promise<{ topUsername?: string; topUserId?: string }> {
+    const roleConfig = getGuildChessRoleConfig(guildId);
+    if (!roleConfig.topPlayerRoleId) {
+        return {};
+    }
+
+    let entries: LeaderboardEntry[] = [];
+    try {
+        entries = await fetchLeaderboard(5, 0);
+    } catch (error) {
+        logger.warn(`Failed to fetch leaderboard for top-player role sync: ${error}`);
+        return {};
+    }
+
+    if (entries.length === 0) {
+        return {};
+    }
+
+    let topUserId: string | undefined;
+    let topUsername: string | undefined;
+    for (const entry of entries) {
+        const resolved = await resolveDiscordUserIdForUsername(guild, guildId, entry.username);
+        if (resolved) {
+            topUserId = resolved;
+            topUsername = entry.username;
+            break;
+        }
+    }
+
+    const topRoleId = roleConfig.topPlayerRoleId;
+
+    // Remove top player role from anyone who is no longer the top player
+    try {
+        const role = await guild?.roles?.fetch?.(topRoleId);
+        if (role?.members) {
+            for (const [memberId, member] of role.members) {
+                if (memberId !== topUserId) {
+                    try {
+                        await member.roles.remove(topRoleId);
+                    } catch (error) {
+                        logger.warn(
+                            `Failed to remove top player role ${topRoleId} from ${memberId}: ${error}`,
+                        );
+                    }
+                }
+            }
+        } else if (
+            roleConfig.currentTopPlayerUserId &&
+            roleConfig.currentTopPlayerUserId !== topUserId
+        ) {
+            const prevMember = await guild?.members
+                ?.fetch?.(roleConfig.currentTopPlayerUserId)
+                .catch(() => null);
+            if (prevMember?.roles?.cache?.has?.(topRoleId)) {
+                await prevMember.roles.remove(topRoleId).catch(() => {});
+            }
+        }
+    } catch (error) {
+        logger.warn(`Failed to inspect top player role ${topRoleId}: ${error}`);
+    }
+
+    if (topUserId) {
+        try {
+            const topMember = await guild?.members?.fetch?.(topUserId);
+            if (topMember && !topMember.roles?.cache?.has?.(topRoleId)) {
+                await topMember.roles.add(topRoleId);
+            }
+        } catch (error) {
+            logger.warn(`Failed to assign top player role ${topRoleId} to ${topUserId}: ${error}`);
+        }
+    }
+
+    mutateGuildRoleConfig(guildId, (cfg) => {
+        cfg.currentTopPlayerUserId = topUserId;
+    });
+
+    return { topUsername, topUserId };
+}
+
+export async function syncChessRolesAfterMatch(
+    client: any,
+    guildId: string,
+    status: MatchStatusResponse,
+    tracked?: TrackedMatch,
+): Promise<void> {
+    if (status.status !== 'finished') {
+        return;
+    }
+
+    const roleConfig = getGuildChessRoleConfig(guildId);
+    if (!hasAnyRoleRewardConfigured(roleConfig)) {
+        return;
+    }
+
+    let guild: any;
+    try {
+        guild = await client?.guilds?.fetch?.(guildId);
+    } catch {
+        return;
+    }
+    if (!guild) {
+        return;
+    }
+
+    const sides: Array<{
+        info: ApiPlayerStatusInfo;
+        trackedUserId?: string;
+    }> = [
+        { info: status.players.white, trackedUserId: tracked?.white.userId },
+        { info: status.players.black, trackedUserId: tracked?.black.userId },
+    ];
+
+    for (const side of sides) {
+        const userId =
+            side.trackedUserId ||
+            (await resolveDiscordUserIdForUsername(guild, guildId, side.info.username));
+        if (!userId) {
+            continue;
+        }
+
+        let elo = side.info.eloAfter ?? side.info.elo;
+        if (typeof elo !== 'number' && roleConfig.eloTiers.length > 0) {
+            try {
+                const stats = await fetchPlayerStats(side.info.username);
+                elo = stats.elo;
+            } catch {
+                elo = undefined;
+            }
+        }
+
+        await syncRolesForPlayer(guild, roleConfig, userId, elo, true);
+    }
+
+    await syncTopPlayerRoleForGuild(guild, guildId);
+}
+
+export function buildChessRolesConfigEmbed(
+    guildName: string,
+    cfg: GuildChessRoleConfig,
+): EmbedBuilder {
+    const firstMatchText = cfg.firstMatchRoleId ? `<@&${cfg.firstMatchRoleId}>` : 'Not set';
+    const topPlayerText = cfg.topPlayerRoleId ? `<@&${cfg.topPlayerRoleId}>` : 'Not set';
+    const eloTiersText =
+        cfg.eloTiers.length > 0
+            ? cfg.eloTiers.map((t) => `• **${t.minElo}+ Elo** -> <@&${t.roleId}>`).join('\n')
+            : 'No Elo role tiers configured.';
+
+    return new EmbedBuilder()
+        .setColor(Colors.Blurple)
+        .setTitle(`Chess Role Rewards: ${guildName}`)
+        .addFields(
+            { name: 'First Match Role', value: firstMatchText, inline: true },
+            { name: 'Top Player Role (#1)', value: topPlayerText, inline: true },
+            {
+                name: 'Elo Role Mode',
+                value: cfg.stackEloRoles ? 'Stackable (keep all reached)' : 'Highest tier only',
+                inline: true,
+            },
+            { name: 'Elo Thresholds', value: eloTiersText, inline: false },
+        )
+        .setFooter({ text: 'Use /chess_roles to configure or sync role rewards' });
 }

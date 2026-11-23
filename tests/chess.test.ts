@@ -8,6 +8,7 @@ import {
     buildActiveMatchesEmbed,
     buildChallengeActionRow,
     buildChallengeEmbed,
+    buildChessRolesConfigEmbed,
     buildGameActionRow,
     buildGameStartedEmbed,
     buildLeaderboardEmbed,
@@ -21,16 +22,23 @@ import {
     fetchLeaderboard,
     fetchMatchStatus,
     fetchPlayerStats,
+    getGuildChessRoleConfig,
     getLatestMatchForUser,
     getPendingChallengeForUser,
     getPlayerCodeForMatch,
     getTrackedMatchById,
     pollAndAnnounceEndedMatches,
+    removeEloRole,
     resetChessApiConfig,
     resetChessDataDir,
     resolveMatchResult,
     setChessApiConfigForTesting,
     setChessDataDirForTesting,
+    setEloRoleStacking,
+    setFirstMatchRole,
+    setTopPlayerRole,
+    syncChessRolesAfterMatch,
+    upsertEloRole,
 } from '../src/services/chessService';
 import { runTestCase } from './testHarness';
 
@@ -425,6 +433,161 @@ async function runSuite(): Promise<void> {
                 assert.strictEqual(postedResultBody.reason, 'timeout');
                 const endedEmbed = buildMatchEndedEmbed(modRes);
                 assert.ok(endedEmbed.data.title?.includes('Aborted'));
+            },
+        );
+
+        await runTestCase(
+            'role rewards: first match, Elo tiers (stackable and exclusive), and top player rotation',
+            async () => {
+                assert.ok(commandRegistry.get('chess_roles'), 'chess_roles command should exist');
+
+                const guildId = 'guild_roles_1';
+                setFirstMatchRole(guildId, 'role_first');
+                setTopPlayerRole(guildId, 'role_top');
+                upsertEloRole(guildId, 1200, 'role_1200');
+                upsertEloRole(guildId, 1400, 'role_1400');
+
+                let cfg = getGuildChessRoleConfig(guildId);
+                assert.strictEqual(cfg.firstMatchRoleId, 'role_first');
+                assert.strictEqual(cfg.topPlayerRoleId, 'role_top');
+                assert.strictEqual(cfg.eloTiers.length, 2);
+
+                const configEmbed = buildChessRolesConfigEmbed('Test Guild', cfg);
+                assert.ok(configEmbed.data.title?.includes('Test Guild'));
+
+                // Track per-user roles in a mock guild
+                const memberRoles: Record<string, Set<string>> = {
+                    u10: new Set(['role_top']), // u10 starts with role_top from earlier
+                    u20: new Set(),
+                };
+
+                const makeMember = (uid: string, username: string) => ({
+                    id: uid,
+                    user: { username },
+                    roles: {
+                        cache: {
+                            has: (roleId: string) => memberRoles[uid].has(roleId),
+                        },
+                        add: async (roleId: string) => {
+                            memberRoles[uid].add(roleId);
+                        },
+                        remove: async (roleId: string) => {
+                            memberRoles[uid].delete(roleId);
+                        },
+                    },
+                });
+
+                const membersMap: Record<string, any> = {
+                    u10: makeMember('u10', 'alice'),
+                    u20: makeMember('u20', 'bob'),
+                };
+
+                const mockClient = {
+                    guilds: {
+                        fetch: async (_id: string) => ({
+                            members: {
+                                fetch: async (uid: string) => membersMap[uid],
+                                cache: {
+                                    find: (fn: (m: any) => boolean) =>
+                                        Object.values(membersMap).find(fn),
+                                },
+                            },
+                            roles: {
+                                fetch: async (roleId: string) => {
+                                    const holders = new Map<string, any>();
+                                    for (const [uid, set] of Object.entries(memberRoles)) {
+                                        if (set.has(roleId)) {
+                                            holders.set(uid, membersMap[uid]);
+                                        }
+                                    }
+                                    return { members: holders };
+                                },
+                            },
+                        }),
+                    },
+                };
+
+                // Bob (#1 on leaderboard) beats Alice -> Bob reaches 1410 Elo, Alice has 1190 Elo
+                setChessApiConfigForTesting({
+                    baseUrl: 'https://games.trulyno.dev/api/v1',
+                    apiKey: 'test-secret-key',
+                    fetchImpl: createMockFetch((url) => {
+                        if (url.includes('/games/chess/leaderboard')) {
+                            return {
+                                status: 200,
+                                body: {
+                                    leaderboard: [
+                                        { username: 'bob', elo: 1410 },
+                                        { username: 'alice', elo: 1190 },
+                                    ],
+                                },
+                            };
+                        }
+                        return { status: 404, body: { error: 'Not found' } };
+                    }),
+                });
+
+                const finishedMatchStatus = {
+                    matchId: 'm_roles_1',
+                    game: 'chess',
+                    status: 'finished' as const,
+                    players: {
+                        white: { username: 'alice', eloBefore: 1210, eloAfter: 1190 },
+                        black: { username: 'bob', eloBefore: 1390, eloAfter: 1410 },
+                    },
+                    result: { winner: 'black' as const, reason: 'checkmate' },
+                    gameUrl: 'https://games.trulyno.dev/game/chess/m_roles_1',
+                    spectateUrl: 'https://games.trulyno.dev/spectate/chess/m_roles_1',
+                    createdAt: '2026-11-23T10:00:00.000Z',
+                };
+
+                await syncChessRolesAfterMatch(mockClient, guildId, finishedMatchStatus, {
+                    matchId: 'm_roles_1',
+                    guildId,
+                    channelId: 'c1',
+                    gameUrl: finishedMatchStatus.gameUrl,
+                    spectateUrl: finishedMatchStatus.spectateUrl,
+                    status: 'finished',
+                    white: { userId: 'u10', username: 'alice' },
+                    black: { userId: 'u20', username: 'bob' },
+                    createdAt: finishedMatchStatus.createdAt,
+                    announcedEnd: false,
+                });
+
+                // Alice gets first-match role, loses top-player role, gets no Elo role (1190 < 1200)
+                assert.strictEqual(memberRoles.u10.has('role_first'), true);
+                assert.strictEqual(memberRoles.u10.has('role_top'), false);
+                assert.strictEqual(memberRoles.u10.has('role_1200'), false);
+
+                // Bob gets first-match role, top-player role, and both 1200 + 1400 Elo roles (stackable)
+                assert.strictEqual(memberRoles.u20.has('role_first'), true);
+                assert.strictEqual(memberRoles.u20.has('role_top'), true);
+                assert.strictEqual(memberRoles.u20.has('role_1200'), true);
+                assert.strictEqual(memberRoles.u20.has('role_1400'), true);
+
+                // Now switch to exclusive Elo mode (stack = false) and re-sync
+                setEloRoleStacking(guildId, false);
+                await syncChessRolesAfterMatch(mockClient, guildId, finishedMatchStatus, {
+                    matchId: 'm_roles_1',
+                    guildId,
+                    channelId: 'c1',
+                    gameUrl: finishedMatchStatus.gameUrl,
+                    spectateUrl: finishedMatchStatus.spectateUrl,
+                    status: 'finished',
+                    white: { userId: 'u10', username: 'alice' },
+                    black: { userId: 'u20', username: 'bob' },
+                    createdAt: finishedMatchStatus.createdAt,
+                    announcedEnd: false,
+                });
+
+                assert.strictEqual(memberRoles.u20.has('role_1200'), false);
+                assert.strictEqual(memberRoles.u20.has('role_1400'), true);
+
+                // Remove an Elo tier
+                const rem = removeEloRole(guildId, 1200);
+                assert.strictEqual(rem.removed, true);
+                cfg = getGuildChessRoleConfig(guildId);
+                assert.strictEqual(cfg.eloTiers.length, 1);
             },
         );
     } finally {

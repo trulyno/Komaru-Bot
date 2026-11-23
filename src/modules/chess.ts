@@ -8,6 +8,7 @@ import {
     buildActiveMatchesEmbed,
     buildChallengeActionRow,
     buildChallengeEmbed,
+    buildChessRolesConfigEmbed,
     buildGameActionRow,
     buildGameLinkOnlyActionRow,
     buildGameStartedEmbed,
@@ -24,15 +25,26 @@ import {
     fetchLeaderboard,
     fetchMatchStatus,
     fetchPlayerStats,
+    getGuildChessRoleConfig,
     getLatestMatchForUser,
     getLatestMatchInChannel,
     getPendingChallengeByChallenger,
     getPendingChallengeForUser,
     getPlayerCodeForMatch,
+    getTrackedMatchById,
     listTrackedMatches,
     pollAndAnnounceEndedMatches,
+    recordPlayerUserMapping,
+    removeEloRole,
     resolveMatchResult,
     setChallengeMessageId,
+    setEloRoleStacking,
+    setFirstMatchRole,
+    setTopPlayerRole,
+    syncChessRolesAfterMatch,
+    syncRolesForPlayer,
+    syncTopPlayerRoleForGuild,
+    upsertEloRole,
 } from '../services/chessService';
 
 let pollIntervalHandle: ReturnType<typeof setInterval> | null = null;
@@ -152,6 +164,12 @@ const moduleDefinition: BotModule = {
                 description:
                     'Moderator commands to force win/draw, abort matches, or clear pending challenges',
                 usage: '/chess_mod <action:force_win|force_draw|abort|list_matches|clear_pending> [match_id] [winner] [reason]',
+            },
+            {
+                name: 'chess_roles',
+                description:
+                    'Configure automatic chess role rewards (first match, Elo tiers, and #1 top player)',
+                usage: '/chess_roles <action:view|set_first_match|clear_first_match|set_top_player|clear_top_player|add_elo_role|remove_elo_role|set_elo_stacking|sync> [role] [min_elo] [stack] [user]',
             },
         ],
         examples: [
@@ -743,6 +761,12 @@ const moduleDefinition: BotModule = {
                     await interaction.deferReply();
                     try {
                         const result = await resolveMatchResult(matchId, { winner, reason });
+                        await syncChessRolesAfterMatch(
+                            client,
+                            interaction.guild.id,
+                            result,
+                            getTrackedMatchById(matchId),
+                        );
                         const embed = buildMatchEndedEmbed(result);
                         logger.info(
                             `Chess mod ${interaction.user.id} declared ${winner} winner for ${matchId} (${reason})`,
@@ -767,6 +791,12 @@ const moduleDefinition: BotModule = {
                             winner: 'draw',
                             reason,
                         });
+                        await syncChessRolesAfterMatch(
+                            client,
+                            interaction.guild.id,
+                            result,
+                            getTrackedMatchById(matchId),
+                        );
                         const embed = buildMatchEndedEmbed(result);
                         logger.info(
                             `Chess mod ${interaction.user.id} declared draw for ${matchId} (${reason})`,
@@ -810,6 +840,265 @@ const moduleDefinition: BotModule = {
 
                 await interaction.reply({
                     content: 'Unknown moderation action.',
+                    ephemeral: true,
+                });
+            },
+        });
+
+        commandRegistry.register({
+            name: 'chess_roles',
+            description:
+                'Configure automatic chess role rewards (first match, Elo tiers, and top player)',
+            options: [
+                {
+                    name: 'action',
+                    description: 'Role configuration action',
+                    type: 3, // STRING
+                    required: true,
+                    choices: [
+                        { name: 'View Configuration', value: 'view' },
+                        { name: 'Set First Match Role', value: 'set_first_match' },
+                        { name: 'Clear First Match Role', value: 'clear_first_match' },
+                        { name: 'Set Top Player Role (#1)', value: 'set_top_player' },
+                        { name: 'Clear Top Player Role', value: 'clear_top_player' },
+                        { name: 'Add / Update Elo Role Tier', value: 'add_elo_role' },
+                        { name: 'Remove Elo Role Tier', value: 'remove_elo_role' },
+                        { name: 'Set Elo Role Stacking Mode', value: 'set_elo_stacking' },
+                        { name: 'Sync Roles Now', value: 'sync' },
+                    ],
+                },
+                {
+                    name: 'role',
+                    description: 'Discord role to award',
+                    type: 8, // ROLE
+                    required: false,
+                },
+                {
+                    name: 'min_elo',
+                    description: 'Minimum Elo required for the Elo role tier (e.g. 1300)',
+                    type: 4, // INTEGER
+                    required: false,
+                },
+                {
+                    name: 'stack',
+                    description:
+                        'True to keep all reached Elo roles, false to keep only the highest tier',
+                    type: 5, // BOOLEAN
+                    required: false,
+                },
+                {
+                    name: 'user',
+                    description: 'Specific user to sync roles for (optional for sync)',
+                    type: 6, // USER
+                    required: false,
+                },
+            ],
+            handler: async (interaction: any) => {
+                if (!interaction.guild) {
+                    await interaction.reply({
+                        content: 'Chess role rewards can only be configured inside a server.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (!isChessModerator(interaction)) {
+                    await interaction.reply({
+                        content: 'You do not have permission to configure chess role rewards.',
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                const action = interaction.options?.getString?.('action');
+                const role = interaction.options?.getRole?.('role');
+                const minElo = interaction.options?.getInteger?.('min_elo');
+                const stack = interaction.options?.getBoolean?.('stack');
+                const targetUser = interaction.options?.getUser?.('user');
+                const guildId = interaction.guild.id;
+
+                if (action === 'view') {
+                    const cfg = getGuildChessRoleConfig(guildId);
+                    const embed = buildChessRolesConfigEmbed(interaction.guild.name, cfg);
+                    await interaction.reply({ embeds: [embed], ephemeral: true });
+                    return;
+                }
+
+                if (action === 'set_first_match') {
+                    if (!role) {
+                        await interaction.reply({
+                            content: 'Please provide a `role` for `set_first_match`.',
+                            ephemeral: true,
+                        });
+                        return;
+                    }
+                    const cfg = setFirstMatchRole(guildId, role.id);
+                    const embed = buildChessRolesConfigEmbed(interaction.guild.name, cfg);
+                    await interaction.reply({
+                        content: `First-match chess role set to <@&${role.id}>.`,
+                        embeds: [embed],
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (action === 'clear_first_match') {
+                    const cfg = setFirstMatchRole(guildId, undefined);
+                    const embed = buildChessRolesConfigEmbed(interaction.guild.name, cfg);
+                    await interaction.reply({
+                        content: 'Cleared the first-match chess role reward.',
+                        embeds: [embed],
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (action === 'set_top_player') {
+                    if (!role) {
+                        await interaction.reply({
+                            content: 'Please provide a `role` for `set_top_player`.',
+                            ephemeral: true,
+                        });
+                        return;
+                    }
+                    const cfg = setTopPlayerRole(guildId, role.id);
+                    const embed = buildChessRolesConfigEmbed(interaction.guild.name, cfg);
+                    await interaction.reply({
+                        content: `Top-player (#1) chess role set to <@&${role.id}>.`,
+                        embeds: [embed],
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (action === 'clear_top_player') {
+                    const cfg = setTopPlayerRole(guildId, undefined);
+                    const embed = buildChessRolesConfigEmbed(interaction.guild.name, cfg);
+                    await interaction.reply({
+                        content: 'Cleared the top-player chess role reward.',
+                        embeds: [embed],
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (action === 'add_elo_role') {
+                    if (!role || typeof minElo !== 'number' || minElo < 100) {
+                        await interaction.reply({
+                            content:
+                                'Please provide both `min_elo` (>= 100) and `role` for `add_elo_role`.',
+                            ephemeral: true,
+                        });
+                        return;
+                    }
+                    const cfg = upsertEloRole(guildId, minElo, role.id);
+                    const embed = buildChessRolesConfigEmbed(interaction.guild.name, cfg);
+                    await interaction.reply({
+                        content: `Configured Elo tier: **${minElo}+ Elo** -> <@&${role.id}>.`,
+                        embeds: [embed],
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (action === 'remove_elo_role') {
+                    if (typeof minElo !== 'number' && !role) {
+                        await interaction.reply({
+                            content:
+                                'Please provide `min_elo` or `role` to remove an Elo role tier.',
+                            ephemeral: true,
+                        });
+                        return;
+                    }
+                    const { removed, config: cfg } = removeEloRole(
+                        guildId,
+                        typeof minElo === 'number' ? minElo : undefined,
+                        role?.id,
+                    );
+                    const embed = buildChessRolesConfigEmbed(interaction.guild.name, cfg);
+                    await interaction.reply({
+                        content: removed
+                            ? 'Removed matching Elo role tier(s).'
+                            : 'No matching Elo role tier found.',
+                        embeds: [embed],
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (action === 'set_elo_stacking') {
+                    if (typeof stack !== 'boolean') {
+                        await interaction.reply({
+                            content:
+                                'Please provide `stack` (`True` or `False`) for `set_elo_stacking`.',
+                            ephemeral: true,
+                        });
+                        return;
+                    }
+                    const cfg = setEloRoleStacking(guildId, stack);
+                    const embed = buildChessRolesConfigEmbed(interaction.guild.name, cfg);
+                    await interaction.reply({
+                        content: `Elo role stacking set to **${stack ? 'Stackable' : 'Highest tier only'}**.`,
+                        embeds: [embed],
+                        ephemeral: true,
+                    });
+                    return;
+                }
+
+                if (action === 'sync') {
+                    await interaction.deferReply({ ephemeral: true });
+                    const cfg = getGuildChessRoleConfig(guildId);
+                    let syncedUsers = 0;
+
+                    if (targetUser) {
+                        recordPlayerUserMapping(guildId, targetUser.id, targetUser.username);
+                        try {
+                            const stats = await fetchPlayerStats(targetUser.username);
+                            await syncRolesForPlayer(
+                                interaction.guild,
+                                cfg,
+                                targetUser.id,
+                                stats.elo,
+                                (stats.gamesPlayed ?? 0) > 0,
+                            );
+                            syncedUsers += 1;
+                        } catch (error) {
+                            const msg = error instanceof Error ? error.message : String(error);
+                            await interaction.editReply({
+                                content: `Failed to sync roles for <@${targetUser.id}>: ${msg}`,
+                            });
+                            return;
+                        }
+                    } else {
+                        for (const [username, userId] of Object.entries(cfg.usernameToUserId)) {
+                            try {
+                                const stats = await fetchPlayerStats(username);
+                                await syncRolesForPlayer(
+                                    interaction.guild,
+                                    cfg,
+                                    userId,
+                                    stats.elo,
+                                    (stats.gamesPlayed ?? 0) > 0,
+                                );
+                                syncedUsers += 1;
+                            } catch {
+                                // Skip players not yet ranked on the web app
+                            }
+                        }
+                    }
+
+                    const topRes = await syncTopPlayerRoleForGuild(interaction.guild, guildId);
+                    const topSummary = topRes.topUserId
+                        ? ` Top player: <@${topRes.topUserId}> (${topRes.topUsername}).`
+                        : '';
+                    await interaction.editReply({
+                        content: `Synced chess roles for ${syncedUsers} player(s).${topSummary}`,
+                    });
+                    return;
+                }
+
+                await interaction.reply({
+                    content: 'Unknown chess role action.',
                     ephemeral: true,
                 });
             },
