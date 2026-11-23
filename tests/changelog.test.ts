@@ -1,4 +1,5 @@
 import assert from 'node:assert';
+import fs from 'node:fs';
 import path from 'node:path';
 import { commandRegistry } from '../src/commandRegistry';
 import { moduleLoader } from '../src/moduleLoader';
@@ -13,13 +14,17 @@ import {
 import changelogModule from '../src/modules/changelog';
 import { runTestCase } from './testHarness';
 
+const packageVersion: string = JSON.parse(
+    fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'),
+).version;
+
 async function runChangelogTests(): Promise<void> {
     await runTestCase('resolveBotVersion extracts valid version from package.json', async () => {
         const version = resolveBotVersion();
         assert.ok(version, 'Version should be defined');
         assert.strictEqual(typeof version, 'string');
         assert.match(version, /^\d+\.\d+\.\d+/);
-        assert.strictEqual(version, '0.4.0');
+        assert.strictEqual(version, packageVersion);
     });
 
     await runTestCase('normalizeVersion strips whitespace and leading v/V', async () => {
@@ -29,21 +34,28 @@ async function runChangelogTests(): Promise<void> {
         assert.strictEqual(normalizeVersion('  v1.2.3  '), '1.2.3');
     });
 
-    await runTestCase('changelogService initializes with current version 0.4.0', async () => {
-        const currentVersion = changelogService.getCurrentVersion();
-        assert.strictEqual(currentVersion, '0.4.0');
+    await runTestCase(
+        'changelogService initializes with current version and tracking start',
+        async () => {
+            const currentVersion = changelogService.getCurrentVersion();
+            assert.strictEqual(currentVersion, packageVersion);
 
-        const startVersion = changelogService.getTrackingStartVersion();
-        assert.strictEqual(startVersion, '0.4.0');
+            const startVersion = changelogService.getTrackingStartVersion();
+            assert.strictEqual(startVersion, '0.4.0');
 
-        const allVersions = changelogService.getAllVersions();
-        assert.ok(allVersions.includes('0.4.0'), '0.4.0 should be listed in all versions');
-    });
+            const allVersions = changelogService.getAllVersions();
+            assert.ok(
+                allVersions.includes(packageVersion),
+                `${packageVersion} should be listed in all versions`,
+            );
+            assert.ok(allVersions.includes('0.4.0'), '0.4.0 should be listed in all versions');
+        },
+    );
 
     await runTestCase('getEntry returns current version when called without argument', async () => {
         const entry = changelogService.getEntry();
         assert.ok(entry, 'Should return current version entry');
-        assert.strictEqual(entry.version, '0.4.0');
+        assert.strictEqual(entry.version, packageVersion);
         assert.ok(entry.sections && entry.sections.length > 0, 'Should have sections');
 
         const addedSection = entry.sections.find((s) => s.title.toLowerCase() === 'added');
@@ -53,8 +65,10 @@ async function runChangelogTests(): Promise<void> {
         const changedSection = entry.sections.find((s) => s.title.toLowerCase() === 'changed');
         assert.ok(changedSection, 'Should contain Changed section');
 
-        const removedSection = entry.sections.find((s) => s.title.toLowerCase() === 'removed');
-        assert.ok(removedSection, 'Should contain Removed section');
+        const entry040 = changelogService.getEntry('0.4.0');
+        assert.ok(entry040, '0.4.0 entry should exist');
+        const removedSection = entry040.sections.find((s) => s.title.toLowerCase() === 'removed');
+        assert.ok(removedSection, '0.4.0 entry should contain Removed section');
     });
 
     await runTestCase('getEntry returns matching entry for normalized version', async () => {
@@ -125,12 +139,12 @@ async function runChangelogTests(): Promise<void> {
             assert.strictEqual(data.color, 0x6a5acd);
             assert.ok(data.description && data.description.includes('Release Date: 2026-11-13'));
             assert.ok(data.fields && data.fields.length >= 3);
-            assert.ok(data.footer?.text.includes('Current Version: v0.4.0'));
+            assert.ok(data.footer?.text.includes(`Current Version: v${packageVersion}`));
 
             const textOutput = changelogService.formatText(entry);
             assert.ok(textOutput.includes('Komaru the Cat - Changelog v0.4.0'));
             assert.ok(textOutput.includes('Added:'));
-            assert.ok(textOutput.includes('Current Version: v0.4.0'));
+            assert.ok(textOutput.includes(`Current Version: v${packageVersion}`));
         },
     );
 
@@ -180,7 +194,7 @@ async function runChangelogTests(): Promise<void> {
             assert.ok(replyPayload);
             assert.ok(replyPayload.embeds && replyPayload.embeds.length === 1);
             const embedData = replyPayload.embeds[0].data;
-            assert.strictEqual(embedData.title, 'Komaru the Cat - Changelog v0.4.0');
+            assert.strictEqual(embedData.title, `Komaru the Cat - Changelog v${packageVersion}`);
             assert.ok(embedData.description.includes('(Current Version)'));
         },
     );
@@ -265,7 +279,7 @@ async function runChangelogTests(): Promise<void> {
         assert.ok(repliedPayload.embeds && repliedPayload.embeds.length === 1);
         assert.strictEqual(
             repliedPayload.embeds[0].data.title,
-            'Komaru the Cat - Changelog v0.4.0',
+            `Komaru the Cat - Changelog v${packageVersion}`,
         );
 
         // Test with specific non-existent version via !changelog 0.1.0
