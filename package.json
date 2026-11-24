@@ -1,6 +1,6 @@
 {
     "name": "komaru-bot",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "description": "Base for the Komaru the Cat Discord application",
     "main": "dist/index.js",
     "scripts": {
