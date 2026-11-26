@@ -1,8 +1,10 @@
 export type KomaruMood =
     'happy' | 'playful' | 'sleepy' | 'affectionate' | 'sassy' | 'chaotic' | 'grumpy';
 
-export type MoodAction =
-    'pet' | 'belly_rub' | 'treat' | 'catnip' | 'play' | 'nap' | 'scold' | 'cucumber' | 'chat';
+export type InteractAction =
+    'pet' | 'belly_rub' | 'boop' | 'brush' | 'cuddle' | 'box' | 'treat' | 'play' | 'catnip' | 'nap';
+
+export type MoodAction = InteractAction | 'scold' | 'cucumber' | 'chat';
 
 export interface MoodStats {
     happiness: number; // 0-100
@@ -17,19 +19,27 @@ export interface UserBond {
     interactions: number;
     treatsGiven: number;
     lastInteractionAt: number;
+    nickname?: string;
 }
 
 export type IntentCategory =
     | 'pet'
     | 'belly_rub'
+    | 'boop'
+    | 'brush'
+    | 'cuddle'
+    | 'box'
+    | 'pspsps'
     | 'feed_treat'
     | 'catnip'
     | 'play'
     | 'nap'
     | 'scold_spray'
     | 'scary_object'
+    | 'set_nickname'
     | 'choice_picker'
     | 'yes_no_question'
+    | 'rate_thing'
     | 'time_status'
     | 'mood_query'
     | 'greeting'
@@ -41,10 +51,14 @@ export type IntentCategory =
     | 'user_sad_tired'
     | 'user_happy_excited'
     | 'user_bored_hungry'
+    | 'work_study'
+    | 'human_food'
     | 'who_are_you'
     | 'help_capabilities'
     | 'joke_fact'
     | 'bingus_lore'
+    | 'sing_dance'
+    | 'secret_knock'
     | 'cat_noises'
     | 'fallback_question'
     | 'fallback_exclamation'
@@ -58,6 +72,7 @@ export interface IntentMatch {
         topic?: string;
         choiceA?: string;
         choiceB?: string;
+        nickname?: string;
     };
 }
 

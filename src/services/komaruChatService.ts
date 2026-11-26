@@ -3,10 +3,17 @@ import path from 'node:path';
 import { EmbedBuilder } from 'discord.js';
 import { config } from '../config';
 import { logger } from '../logger';
-import { KomaruChatEngine } from '../komaruChat/engine';
-import { applyTimeDecay, deriveMood, getBondTitle, getMoodHint } from '../komaruChat/mood';
+import { KomaruChatEngine, MAX_NICKNAME_LENGTH } from '../komaruChat/engine';
+import {
+    applyTimeDecay,
+    deriveMood,
+    getBondTitle,
+    getMoodHint,
+    NICKNAME_UNLOCK_AFFINITY,
+} from '../komaruChat/mood';
 import {
     GuildChatState,
+    InteractAction,
     KomaruChatConfig,
     KomaruChatStateFile,
     KomaruMood,
@@ -215,8 +222,8 @@ export class KomaruChatService {
     }
 
     public async handleInteractCommand(interaction: any): Promise<void> {
-        const action = (interaction.options?.getString?.('action', true) ?? 'pet') as
-            'pet' | 'treat' | 'play' | 'catnip' | 'nap';
+        const action = (interaction.options?.getString?.('action', true) ??
+            'pet') as InteractAction;
         const userId = interaction.user?.id ?? 'unknown';
         const remainingMs = this.engine.checkInteractCooldown(userId);
 
@@ -265,6 +272,11 @@ export class KomaruChatService {
         const bond = guildState.userBonds[userId];
         const affinity = bond?.affinity ?? 0;
         const bondTitle = getBondTitle(affinity);
+        const nicknameStatus = bond?.nickname
+            ? `Nickname: **${bond.nickname}**`
+            : affinity >= NICKNAME_UNLOCK_AFFINITY
+              ? 'Nickname: Unlocked (set with `/komaru_nickname`)'
+              : `Nickname: Locked (${affinity}/${NICKNAME_UNLOCK_AFFINITY} affinity)`;
 
         const embed = new EmbedBuilder()
             .setTitle(`Komaru's Mood: ${mood.toUpperCase()}`)
@@ -276,12 +288,82 @@ export class KomaruChatService {
                 { name: 'Hunger', value: renderBar(stats.hunger), inline: true },
                 {
                     name: 'Your Bond',
-                    value: `${bondTitle} (Affinity: ${affinity}, Interactions: ${bond?.interactions ?? 0})`,
+                    value: `${bondTitle} (Affinity: ${affinity}, Interactions: ${bond?.interactions ?? 0})\n${nicknameStatus}`,
                     inline: false,
                 },
             );
 
         await interaction.reply({ embeds: [embed] });
+    }
+
+    public async handleNicknameCommand(interaction: any): Promise<void> {
+        const guildId = interaction.guildId ?? 'dm';
+        const userId = interaction.user?.id ?? 'unknown';
+        const guildState = this.getGuildState(guildId);
+        const clear = Boolean(interaction.options?.getBoolean?.('clear', false));
+        const requestedNickname = interaction.options?.getString?.('nickname', false);
+
+        if (clear) {
+            const cleared = this.engine.clearUserNickname(guildState, userId);
+            if (cleared) {
+                this.saveState();
+                await interaction.reply({
+                    content:
+                        '*tilts head* Okay! I cleared your custom nickname and will use your regular name again, nya~',
+                    ephemeral: true,
+                });
+            } else {
+                await interaction.reply({
+                    content: 'You do not have a custom Komaru nickname set right now.',
+                    ephemeral: true,
+                });
+            }
+            return;
+        }
+
+        if (requestedNickname === null || requestedNickname === undefined) {
+            const bond = guildState.userBonds[userId];
+            const affinity = bond?.affinity ?? 0;
+            const current = bond?.nickname;
+            if (current) {
+                await interaction.reply({
+                    content: `Komaru currently calls you **${current}** (Affinity: ${affinity}). Pass \`nickname:\` to change it or \`clear:true\` to remove it.`,
+                    ephemeral: true,
+                });
+            } else if (affinity >= NICKNAME_UNLOCK_AFFINITY) {
+                await interaction.reply({
+                    content: `You have unlocked custom nicknames! (Affinity: ${affinity}/${NICKNAME_UNLOCK_AFFINITY}). Run \`/komaru_nickname nickname:<name>\` to set one.`,
+                    ephemeral: true,
+                });
+            } else {
+                await interaction.reply({
+                    content: `Custom nicknames unlock at **Trusted Friend** (${NICKNAME_UNLOCK_AFFINITY} affinity). Your current affinity is **${affinity}**. Keep chatting or interacting with Komaru!`,
+                    ephemeral: true,
+                });
+            }
+            return;
+        }
+
+        const result = this.engine.setUserNickname(guildState, userId, requestedNickname);
+        if (!result.ok) {
+            if (result.reason === 'locked') {
+                await interaction.reply({
+                    content: `*tilts head* We are not quite close enough for nicknames yet! Reach **Trusted Friend** (${result.affinity}/${result.requiredAffinity} affinity) first.`,
+                    ephemeral: true,
+                });
+            } else {
+                await interaction.reply({
+                    content: `That nickname is invalid. Keep it between 1 and ${MAX_NICKNAME_LENGTH} characters with no mentions.`,
+                    ephemeral: true,
+                });
+            }
+            return;
+        }
+
+        this.saveState();
+        await interaction.reply({
+            content: `*perks up ears and memorizes it* Okay! From now on Komaru will call you **${result.nickname}**, nya~`,
+        });
     }
 
     public async handleChannelCommand(interaction: any): Promise<void> {

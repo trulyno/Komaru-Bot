@@ -10,6 +10,7 @@ import {
     DEFAULT_MOOD_STATS,
     deriveMood,
     getBondTitle,
+    NICKNAME_UNLOCK_AFFINITY,
 } from '../src/komaruChat/mood';
 import { selectResponse } from '../src/komaruChat/responses';
 import { KomaruChatConfig } from '../src/komaruChat/types';
@@ -207,6 +208,142 @@ async function runTests() {
             ).shouldRespond,
             true,
         );
+    });
+
+    await runTestCase('improved intent checking and new interactions', () => {
+        assert.strictEqual(matchIntent('komaru boop your nose').intent, 'boop');
+        assert.strictEqual(matchIntent('komaru brush your fur').intent, 'brush');
+        assert.strictEqual(matchIntent('komaru give you a cuddle').intent, 'cuddle');
+        assert.strictEqual(matchIntent('komaru here is a cardboard box').intent, 'box');
+        assert.strictEqual(matchIntent('komaru pspsps').intent, 'pspsps');
+        assert.strictEqual(matchIntent('komaru sing a song').intent, 'sing_dance');
+        assert.strictEqual(matchIntent('komaru knock knock').intent, 'secret_knock');
+        assert.strictEqual(matchIntent('komaru i am studying for my exam').intent, 'work_study');
+        assert.strictEqual(matchIntent('komaru want some iced coffee?').intent, 'human_food');
+
+        // Disambiguation: "thanks for the help" should be gratitude, not help_capabilities
+        assert.strictEqual(matchIntent('komaru thanks for the help!').intent, 'gratitude');
+        // Negation on insult should not trigger insult
+        assert.notStrictEqual(matchIntent('komaru you are not stupid').intent, 'insult');
+
+        // Expanded choice picker and rate_thing
+        const vsChoice = matchIntent('komaru tea vs coffee?');
+        assert.strictEqual(vsChoice.intent, 'choice_picker');
+        assert.strictEqual(vsChoice.extracted?.choiceA, 'tea');
+        assert.strictEqual(vsChoice.extracted?.choiceB, 'coffee');
+
+        const betweenChoice = matchIntent('komaru pick between apples and oranges');
+        assert.strictEqual(betweenChoice.intent, 'choice_picker');
+        assert.strictEqual(betweenChoice.extracted?.choiceA, 'apples');
+        assert.strictEqual(betweenChoice.extracted?.choiceB, 'oranges');
+
+        const rate = matchIntent('komaru rate garlic bread');
+        assert.strictEqual(rate.intent, 'rate_thing');
+        assert.strictEqual(rate.extracted?.topic, 'garlic bread');
+
+        const haveQuestion = matchIntent('komaru have you eaten today?');
+        assert.strictEqual(haveQuestion.intent, 'yes_no_question');
+
+        // New mood interactions
+        const now = 1_700_000_000_000;
+        const base = { ...DEFAULT_MOOD_STATS, overstimulation: 40, lastUpdatedAt: now };
+        const brushed = applyInteraction(base, 'brush', now);
+        assert.ok(brushed.stats.overstimulation < base.overstimulation);
+        assert.ok(brushed.stats.happiness > base.happiness);
+
+        const boxed = applyInteraction(base, 'box', now);
+        assert.ok(boxed.stats.overstimulation < base.overstimulation);
+        assert.ok(boxed.stats.happiness > base.happiness);
+
+        const booped = applyInteraction(base, 'boop', now);
+        assert.ok(booped.stats.happiness > base.happiness);
+
+        const cuddled = applyInteraction(base, 'cuddle', now);
+        assert.ok(cuddled.stats.happiness > base.happiness);
+    });
+
+    await runTestCase('nickname system bond gate, persistence, and usage', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'komaru-nick-'));
+        const statePath = path.join(tempDir, 'state.json');
+        const service = new KomaruChatService(statePath, () => TEST_CONFIG);
+        const guildState = service.getGuildState('g1');
+
+        // Locked below NICKNAME_UNLOCK_AFFINITY
+        const locked = service.engine.setUserNickname(guildState, 'u1', 'Captain');
+        assert.strictEqual(locked.ok, false);
+        assert.strictEqual(locked.reason, 'locked');
+        assert.strictEqual(locked.requiredAffinity, NICKNAME_UNLOCK_AFFINITY);
+
+        // Conversational attempt when locked does not set nickname
+        const chatLocked = service.engine.processMessage({
+            guildState,
+            channelId: 'c1',
+            userId: 'u1',
+            userName: 'Alex',
+            content: 'komaru call me Captain',
+            bypassCooldown: true,
+        });
+        assert.strictEqual(chatLocked.intent, 'set_nickname');
+        assert.strictEqual(guildState.userBonds['u1'].nickname, undefined);
+
+        // Unlock bond and test validation + setting
+        guildState.userBonds['u1'].affinity = NICKNAME_UNLOCK_AFFINITY;
+        const invalidMention = service.engine.setUserNickname(guildState, 'u1', '<@12345>');
+        assert.strictEqual(invalidMention.ok, false);
+        assert.strictEqual(invalidMention.reason, 'invalid');
+
+        const chatUnlocked = service.engine.processMessage({
+            guildState,
+            channelId: 'c1',
+            userId: 'u1',
+            userName: 'Alex',
+            content: 'komaru call me TunaKing',
+            bypassCooldown: true,
+        });
+        assert.ok(chatUnlocked.reply.includes('TunaKing'));
+        assert.strictEqual(guildState.userBonds['u1'].nickname, 'TunaKing');
+
+        // Subsequent interact uses nickname instead of Alex when {user} is rendered
+        const interactRes = service.engine.processInteract({
+            guildState,
+            channelId: 'c1',
+            userId: 'u1',
+            userName: 'Alex',
+            action: 'brush',
+        });
+        assert.ok(interactRes.reply.length > 0);
+        assert.ok(!interactRes.reply.includes('Alex'));
+
+        // Slash command handler persists nickname and supports clear
+        const replies: any[] = [];
+        await service.handleNicknameCommand({
+            guildId: 'g1',
+            user: { id: 'u1' },
+            options: {
+                getBoolean: () => false,
+                getString: () => 'ChefKomaru',
+            },
+            reply: async (payload: any) => {
+                replies.push(payload);
+            },
+        });
+        assert.ok(replies[0].content.includes('ChefKomaru'));
+
+        const reloaded = new KomaruChatService(statePath, () => TEST_CONFIG);
+        assert.strictEqual(reloaded.getGuildState('g1').userBonds['u1'].nickname, 'ChefKomaru');
+
+        await reloaded.handleNicknameCommand({
+            guildId: 'g1',
+            user: { id: 'u1' },
+            options: {
+                getBoolean: () => true,
+                getString: () => null,
+            },
+            reply: async (payload: any) => {
+                replies.push(payload);
+            },
+        });
+        assert.strictEqual(reloaded.getGuildState('g1').userBonds['u1'].nickname, undefined);
     });
 }
 

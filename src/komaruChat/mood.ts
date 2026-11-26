@@ -150,6 +150,45 @@ export function applyInteraction(
             }
             break;
         }
+        case 'boop': {
+            if (decayed.overstimulation >= 70) {
+                overstimulated = true;
+                next.happiness = clampStat(decayed.happiness - 6);
+                next.overstimulation = clampStat(decayed.overstimulation + 15);
+                affinityDelta = 0;
+            } else {
+                next.happiness = clampStat(decayed.happiness + 5);
+                next.overstimulation = clampStat(decayed.overstimulation + 8);
+                affinityDelta = 1;
+            }
+            break;
+        }
+        case 'brush': {
+            next.happiness = clampStat(decayed.happiness + 10);
+            next.overstimulation = clampStat(decayed.overstimulation - 15);
+            affinityDelta = 2;
+            break;
+        }
+        case 'cuddle': {
+            const currentMood = deriveMood(decayed, now);
+            if (decayed.overstimulation >= 65 || currentMood === 'grumpy') {
+                overstimulated = true;
+                next.happiness = clampStat(decayed.happiness - 5);
+                next.overstimulation = clampStat(decayed.overstimulation + 15);
+                affinityDelta = 0;
+            } else {
+                next.happiness = clampStat(decayed.happiness + 12);
+                next.overstimulation = clampStat(decayed.overstimulation + 8);
+                affinityDelta = 3;
+            }
+            break;
+        }
+        case 'box': {
+            next.happiness = clampStat(decayed.happiness + 14);
+            next.overstimulation = clampStat(decayed.overstimulation - 20);
+            affinityDelta = 2;
+            break;
+        }
         case 'treat': {
             next.hunger = clampStat(decayed.hunger - 30);
             next.happiness = clampStat(decayed.happiness + 15);
@@ -216,6 +255,8 @@ export function applyInteraction(
         affinityDelta,
     };
 }
+
+export const NICKNAME_UNLOCK_AFFINITY = 20;
 
 export function getBondTitle(affinity: number): string {
     if (affinity >= 100) return 'Supreme Tuna Provider';

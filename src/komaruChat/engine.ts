@@ -1,9 +1,16 @@
 import { matchIntent } from './intents';
-import { applyInteraction, DEFAULT_MOOD_STATS, deriveMood, getBondTitle } from './mood';
+import {
+    applyInteraction,
+    DEFAULT_MOOD_STATS,
+    deriveMood,
+    getBondTitle,
+    NICKNAME_UNLOCK_AFFINITY,
+} from './mood';
 import { selectResponse } from './responses';
 import {
     GuildChatState,
     IntentCategory,
+    InteractAction,
     KomaruChatConfig,
     KomaruMood,
     MoodAction,
@@ -17,9 +24,24 @@ export interface ProcessChatResult {
     rateLimited?: boolean;
 }
 
+export interface SetNicknameResult {
+    ok: boolean;
+    reason?: 'locked' | 'invalid';
+    nickname?: string;
+    affinity: number;
+    requiredAffinity: number;
+}
+
+export const MAX_NICKNAME_LENGTH = 32;
+
 const INTENT_TO_MOOD_ACTION: Partial<Record<IntentCategory, MoodAction>> = {
     pet: 'pet',
     belly_rub: 'belly_rub',
+    boop: 'boop',
+    brush: 'brush',
+    cuddle: 'cuddle',
+    box: 'box',
+    pspsps: 'play',
     feed_treat: 'treat',
     catnip: 'catnip',
     play: 'play',
@@ -92,6 +114,54 @@ export class KomaruChatEngine {
         return remaining > 0 ? remaining : 0;
     }
 
+    public setUserNickname(
+        guildState: GuildChatState,
+        userId: string,
+        rawNickname: string,
+        now = Date.now(),
+    ): SetNicknameResult {
+        const bond = this.getOrInitBond(guildState, userId, now);
+        if (bond.affinity < NICKNAME_UNLOCK_AFFINITY) {
+            return {
+                ok: false,
+                reason: 'locked',
+                affinity: bond.affinity,
+                requiredAffinity: NICKNAME_UNLOCK_AFFINITY,
+            };
+        }
+
+        const sanitized = rawNickname.replace(/[\r\n\t]+/g, ' ').trim();
+        if (
+            !sanitized ||
+            sanitized.length > MAX_NICKNAME_LENGTH ||
+            /<@!?\d+>|<#\d+>|<@&\d+>|@everyone|@here/i.test(sanitized)
+        ) {
+            return {
+                ok: false,
+                reason: 'invalid',
+                affinity: bond.affinity,
+                requiredAffinity: NICKNAME_UNLOCK_AFFINITY,
+            };
+        }
+
+        bond.nickname = sanitized;
+        return {
+            ok: true,
+            nickname: sanitized,
+            affinity: bond.affinity,
+            requiredAffinity: NICKNAME_UNLOCK_AFFINITY,
+        };
+    }
+
+    public clearUserNickname(guildState: GuildChatState, userId: string): boolean {
+        const bond = guildState.userBonds[userId];
+        if (!bond || !bond.nickname) {
+            return false;
+        }
+        delete bond.nickname;
+        return true;
+    }
+
     /**
      * Processes a conversational message and updates guild mood & user bond.
      */
@@ -137,14 +207,32 @@ export class KomaruChatEngine {
         }
         bond.lastInteractionAt = now;
 
-        const recent = this.recentResponsesByChannel.get(params.channelId) ?? [];
-        const reply = selectResponse(intentMatch, moodResult.mood, {
-            userName: params.userName,
-            bondTitle: getBondTitle(bond.affinity),
-            overstimulated: moodResult.overstimulated,
-            bellyTrapTriggered: moodResult.bellyTrapTriggered,
-            recentResponses: recent,
-        });
+        let reply: string;
+        if (intentMatch.intent === 'set_nickname' && intentMatch.extracted?.nickname) {
+            const nickResult = this.setUserNickname(
+                params.guildState,
+                params.userId,
+                intentMatch.extracted.nickname,
+                now,
+            );
+            if (nickResult.ok && nickResult.nickname) {
+                reply = `*perks up ears and memorizes it* Okay! From now on I will call you **${nickResult.nickname}**, nya~`;
+            } else if (nickResult.reason === 'locked') {
+                reply = `*tilts head* We are not quite close enough for special nicknames yet, ${params.userName}! Reach **Trusted Friend** (${nickResult.affinity}/${nickResult.requiredAffinity} affinity) first, or check \`/komaru_mood\`.`;
+            } else {
+                reply = `*bats at the name tag* That nickname will not fit on my collar, ${params.userName}! Keep it between 1 and ${MAX_NICKNAME_LENGTH} characters without mentions.`;
+            }
+        } else {
+            const effectiveName = bond.nickname || params.userName;
+            const recent = this.recentResponsesByChannel.get(params.channelId) ?? [];
+            reply = selectResponse(intentMatch, moodResult.mood, {
+                userName: effectiveName,
+                bondTitle: getBondTitle(bond.affinity),
+                overstimulated: moodResult.overstimulated,
+                bellyTrapTriggered: moodResult.bellyTrapTriggered,
+                recentResponses: recent,
+            });
+        }
 
         this.recordRecentResponse(params.channelId, reply);
         this.userCooldowns.set(params.userId, now);
@@ -165,7 +253,7 @@ export class KomaruChatEngine {
         channelId: string;
         userId: string;
         userName: string;
-        action: 'pet' | 'treat' | 'play' | 'catnip' | 'nap';
+        action: InteractAction;
         now?: number;
     }): ProcessChatResult {
         const now = params.now ?? Date.now();
@@ -187,8 +275,13 @@ export class KomaruChatEngine {
         }
         bond.lastInteractionAt = now;
 
-        const actionToIntent: Record<typeof params.action, IntentCategory> = {
+        const actionToIntent: Record<InteractAction, IntentCategory> = {
             pet: 'pet',
+            belly_rub: 'belly_rub',
+            boop: 'boop',
+            brush: 'brush',
+            cuddle: 'cuddle',
+            box: 'box',
             treat: 'feed_treat',
             play: 'play',
             catnip: 'catnip',
@@ -200,9 +293,10 @@ export class KomaruChatEngine {
             confidence: 1,
         };
 
+        const effectiveName = bond.nickname || params.userName;
         const recent = this.recentResponsesByChannel.get(params.channelId) ?? [];
         const reply = selectResponse(intentMatch, moodResult.mood, {
-            userName: params.userName,
+            userName: effectiveName,
             bondTitle: getBondTitle(bond.affinity),
             overstimulated: moodResult.overstimulated,
             bellyTrapTriggered: moodResult.bellyTrapTriggered,

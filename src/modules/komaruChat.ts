@@ -9,7 +9,7 @@ const moduleDefinition: BotModule = {
         summary: 'Chat with Komaru the Cat (mood-driven, non-LLM)',
         description:
             'Talk to Komaru by mentioning "komaru" in chat, replying to her messages, or using /chat. Komaru reacts based on her current mood (happy, playful, sleepy, affectionate, sassy, chaotic, grumpy) and tracks your bond.',
-        usage: '/chat <message> | /komaru_mood | /komaru_interact <action> | /komaru_channel <mode>',
+        usage: '/chat <message> | /komaru_mood | /komaru_interact <action> | /komaru_nickname [nickname] | /komaru_channel <mode>',
         commands: [
             {
                 name: 'chat',
@@ -23,8 +23,15 @@ const moduleDefinition: BotModule = {
             },
             {
                 name: 'komaru_interact',
-                description: 'Interact with Komaru (pet, treat, play, catnip, nap)',
+                description:
+                    'Interact with Komaru (pet, belly_rub, boop, brush, cuddle, box, treat, play, catnip, nap)',
                 usage: '/komaru_interact <action>',
+            },
+            {
+                name: 'komaru_nickname',
+                description:
+                    'Set, view, or clear your custom nickname from Komaru (unlocks at Trusted Friend)',
+                usage: '/komaru_nickname [nickname] [clear]',
             },
             {
                 name: 'komaru_channel',
@@ -76,6 +83,11 @@ const moduleDefinition: BotModule = {
                     required: true,
                     choices: [
                         { name: 'Pet', value: 'pet' },
+                        { name: 'Rub Belly', value: 'belly_rub' },
+                        { name: 'Boop Nose', value: 'boop' },
+                        { name: 'Brush Fur', value: 'brush' },
+                        { name: 'Cuddle', value: 'cuddle' },
+                        { name: 'Give Cardboard Box', value: 'box' },
                         { name: 'Give Treat', value: 'treat' },
                         { name: 'Play', value: 'play' },
                         { name: 'Give Catnip', value: 'catnip' },
@@ -85,6 +97,28 @@ const moduleDefinition: BotModule = {
             ],
             handler: async (interaction: any) => {
                 await komaruChatService.handleInteractCommand(interaction);
+            },
+        });
+
+        commandRegistry.register({
+            name: 'komaru_nickname',
+            description: 'Set, view, or clear the nickname Komaru calls you',
+            options: [
+                {
+                    name: 'nickname',
+                    description: 'Nickname Komaru should call you (requires Trusted Friend bond)',
+                    type: 3, // STRING
+                    required: false,
+                },
+                {
+                    name: 'clear',
+                    description: 'Clear your custom Komaru nickname',
+                    type: 5, // BOOLEAN
+                    required: false,
+                },
+            ],
+            handler: async (interaction: any) => {
+                await komaruChatService.handleNicknameCommand(interaction);
             },
         });
 
