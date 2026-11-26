@@ -36,6 +36,11 @@ export interface EnvConfig {
     chessApiBaseUrl: string;
     chessBotApiKey?: string;
     chessPollIntervalSeconds: number;
+
+    // GregTower Web App API
+    gregTowerApiBaseUrl: string;
+    gregTowerBotApiKey?: string;
+    gregTowerLoginTtlSeconds: number;
 }
 
 export function loadEnvConfig(): EnvConfig {
@@ -93,6 +98,22 @@ export function loadEnvConfig(): EnvConfig {
         chessPollIntervalSeconds: Math.max(
             10,
             Number(process.env.CHESS_POLL_INTERVAL_SECONDS) || 30,
+        ),
+
+        gregTowerApiBaseUrl: (
+            process.env.GREGTOWER_API_BASE_URL ||
+            process.env.GAMES_API_BASE_URL ||
+            process.env.CHESS_API_BASE_URL ||
+            'https://games.trulyno.dev/api/v1'
+        ).replace(/\/+$/, ''),
+        gregTowerBotApiKey:
+            process.env.GREGTOWER_BOT_API_KEY ||
+            process.env.BOT_API_KEY ||
+            process.env.CHESS_BOT_API_KEY ||
+            undefined,
+        gregTowerLoginTtlSeconds: Math.max(
+            60,
+            Number(process.env.GREGTOWER_LOGIN_TTL_SECONDS) || 600,
         ),
     };
 }
