@@ -1,6 +1,28 @@
 {
     "versions": [
         {
+            "version": "0.5.1",
+            "date": "2026-11-26",
+            "title": "GregTower Integration & Extended Komaru Chatbot",
+            "description": "Added GregTower Discord login, co-op lobby, and Hall of Fame leaderboard integration, plus custom Komaru nicknames, new interaction actions, and expanded chatbot intents and responses.",
+            "sections": [
+                {
+                    "title": "Added",
+                    "items": [
+                        "GregTower integration (gregtower module) with /login and /gregtower (login, lobby, leaderboard) for one-time Discord login codes, co-op lobbies, and the Tower Hall of Fame.",
+                        "Custom Komaru nicknames via /komaru_nickname and conversational nickname requests, unlocking at Trusted Friend (20 affinity).",
+                        "New /komaru_interact actions: belly_rub, boop, brush, cuddle, and box with mood, affinity, and overstimulation handling."
+                    ]
+                },
+                {
+                    "title": "Changed",
+                    "items": [
+                        "Expanded komaruChat intent recognition and mood-aware response pools with new intents (pspsps, rate_thing, work_study, human_food, sing_dance, secret_knock, and interaction triggers)."
+                    ]
+                }
+            ]
+        },
+        {
             "version": "0.5.0",
             "date": "2026-11-23",
             "title": "Komaru Chatbot, Chess Web App Rework & User Command Enhancements",

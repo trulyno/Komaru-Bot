@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Changelog tracking officially began at version 0.4.0.
 
+## [0.5.1] - 2026-11-26
+
+### Added
+
+- GregTower integration (`gregtower` module) with `/login` and `/gregtower` (`login`, `lobby`, `leaderboard`) commands for issuing ephemeral one-time Discord login codes, creating public or private co-op lobbies, and viewing the Tower Hall of Fame leaderboard via the GregTower API (`GREGTOWER_API_BASE_URL`, `GREGTOWER_BOT_API_KEY`, `GREGTOWER_LOGIN_TTL_SECONDS`).
+- Custom Komaru nicknames via `/komaru_nickname` and conversational nickname requests, unlocking at Trusted Friend (20 affinity) so users can set, view, or clear how Komaru addresses them.
+- New `/komaru_interact` actions (`belly_rub`, `boop`, `brush`, `cuddle`, `box`) with dedicated mood, happiness, affinity, and overstimulation handling.
+
+### Changed
+
+- Expanded `komaruChat` intent recognition and mood-aware response pools with additional conversational intents (`pspsps`, `rate_thing`, `work_study`, `human_food`, `sing_dance`, `secret_knock`, and new interaction triggers).
+
 ## [0.5.0] - 2026-11-23
 
 ### Added
